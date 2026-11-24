@@ -1,0 +1,30 @@
+GoldLedger 1.2 - install on another computer
+============================================
+
+Works on: the World of Warcraft "_forever_" client (interface 16001).
+
+1. Close World of Warcraft.
+
+2. Copy the whole "GoldLedger" folder (next to this file, with
+   GoldLedger.toc, Core.lua, Tracker.lua and UI.lua inside) into:
+
+     C:\Program Files (x86)\World of Warcraft\_forever_\Interface\AddOns\
+
+   (Or unzip GoldLedger.zip into that AddOns folder.)
+
+3. Start WoW. At character select click "AddOns":
+     - turn ON  GoldLedger
+     - turn OFF AllemanoLedger (if that computer has it)
+
+4. Log in. The coin counter appears near the top of the screen.
+   Click it, or type /gl, to open the Ledger.
+
+Notes
+-----
+- Records start from the moment you install. A new computer starts empty.
+- Data lives in _forever_\WTF\Account\<ACCOUNT>\SavedVariables\GoldLedger.lua
+- /gl            open or close the Ledger
+  /gl counter    show or hide the counter
+  /gl reset      reset the counter
+  /gl options    open the options (also Options > AddOns > GoldLedger)
+  /gl errors     show recent errors

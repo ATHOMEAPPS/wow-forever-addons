@@ -1,0 +1,12 @@
+## Interface: 16001
+## Title: GoldLedger
+## IconTexture: Interface\AddOns\GoldLedger\icon
+## Notes: Your own gold accounting: where every coin came from and went, by day, week and month, for all characters. Plus an on-screen "coin earned" counter for farming.
+## Author: slaveplanet-hash
+## Version: 1.2
+## SavedVariables: GoldLedgerDB
+
+Core.lua
+Tracker.lua
+UI.lua
+Options.lua

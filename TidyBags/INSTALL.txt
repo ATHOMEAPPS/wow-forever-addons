@@ -1,0 +1,36 @@
+TidyBags 2.1 - install on another computer
+==========================================
+
+Works on: the World of Warcraft "_forever_" client (interface 16001).
+
+1. Close World of Warcraft.
+
+2. Copy the whole "TidyBags" folder (the one next to this file, with
+   TidyBags.toc, TidyBags.lua and Data.lua inside) into:
+
+     C:\Program Files (x86)\World of Warcraft\_forever_\Interface\AddOns\
+
+   so you end up with:
+
+     ...\_forever_\Interface\AddOns\TidyBags\TidyBags.toc
+
+   (If WoW is installed somewhere else, find the "_forever_" folder there.)
+   Or unzip TidyBags.zip into the same AddOns folder.
+
+3. Start WoW. At character select click "AddOns":
+     - turn ON  TidyBags
+     - turn OFF Bagnon, BagBrother, Bagnon_Bank, Bagnon_Config, Bagnon_GuildBank
+       (if that computer has them)
+
+4. Log in. Press B to open your bags. Visit a banker to open the bank.
+
+Notes
+-----
+- Saved characters are per WoW account on each computer. A new computer
+  starts empty: log in on each character, and open its bank once, to save it.
+- Settings and saved items live in
+    _forever_\WTF\Account\<ACCOUNT>\SavedVariables\TidyBags.lua
+  Copy that file too if you want to bring saved characters along
+  (WoW must be closed while you copy it).
+- Type /tb in game for all commands.
+- To uninstall: delete the TidyBags folder from AddOns.
