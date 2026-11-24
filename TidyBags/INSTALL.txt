@@ -1,4 +1,4 @@
-TidyBags 2.7 - install on another computer
+TidyBags 2.8 - install on another computer
 ==========================================
 Made for the Family, by Claude and EonJoe.
 
@@ -34,4 +34,5 @@ Notes
   Copy that file too if you want to bring saved characters along
   (WoW must be closed while you copy it).
 - Type /tb in game for all commands.
+- Settings: Options > AddOns > TidyBags (or /tb options), including "Show keyring slots".
 - To uninstall: delete the TidyBags folder from AddOns.

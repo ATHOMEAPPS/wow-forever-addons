@@ -42,6 +42,7 @@ local DEFAULTS = {
 	columns = 10, bankColumns = 14, scale = 1, bankScale = 1,
 	autoSort = false, autoSortBank = false, tooltipCounts = true,
 	questSection = true, questGlow = true, questWarn = true, bagTypes = true,
+	showKeyring = true,
 	pos = {},
 }
 
@@ -475,7 +476,9 @@ function Window:Layout()
 		for _, bag in ipairs(self:LiveBags()) do
 			local isKeyring = bag == KEYRING_CONTAINER
 			local numSlots = C_Container.GetContainerNumSlots(bag)
-			if isKeyring then -- every slot stays visible, in its own labelled section
+			if isKeyring and not db.showKeyring then
+				numSlots = 0 -- hidden in Options or with /tb keyring
+			elseif isKeyring then -- every slot stays visible, in its own labelled section
 				self.bagFamily[bag] = KEYRING_FAMILY
 				self.bagIcon[bag] = KEYRING_ICON
 			else
@@ -502,6 +505,9 @@ function Window:Layout()
 			local container = entry[2]
 			local isKeyring = entry[1] == KEYRING_CONTAINER
 			local numSlots = container.size or 0
+			if isKeyring and not db.showKeyring then
+				numSlots = 0
+			end
 			for slot = 1, numSlots do
 				n = n + 1
 				local b = self:GetSavedButton(n)
@@ -1250,6 +1256,7 @@ ns.On("PLAYER_LOGIN", function()
 	inventory = BuildInventory()
 	bank = BuildBank()
 	ns.inventory, ns.bank = inventory, bank
+	ns.db = db
 
 	for kind, w in pairs({ inventory = inventory, bank = bank }) do
 		w:SetScale(kind == "bank" and db.bankScale or db.scale)
@@ -1296,6 +1303,22 @@ end
 
 
 --[[ Slash command ]]--
+
+-- redraw the windows after a setting changes (used by Options.lua and /tb)
+function ns.ApplySetting(key)
+	if not (inventory and bank) then
+		return
+	end
+	if key == "showKeyring" or key == "questSection" then
+		inventory:Layout()
+		bank:Layout()
+	elseif key == "autoSort" then
+		inventory.auto:SetChecked(db.autoSort)
+	else
+		inventory:UpdateAll()
+		bank:UpdateAll()
+	end
+end
 
 SLASH_TIDYBAGS1 = "/tidybags"
 SLASH_TIDYBAGS2 = "/tb"
@@ -1368,6 +1391,14 @@ SlashCmdList.TIDYBAGS = function(msg)
 		inventory:UpdateAll()
 		bank:UpdateAll()
 		Print("profession bag colours " .. (db.bagTypes and "on" or "off"))
+	elseif cmd == "keyring" then
+		db.showKeyring = not db.showKeyring
+		ns.ApplySetting("showKeyring")
+		Print("keyring slots " .. (db.showKeyring and "shown" or "hidden"))
+	elseif cmd == "options" then
+		if ns.OpenOptions then
+			ns.OpenOptions()
+		end
 	elseif cmd == "questwarn" then
 		db.questWarn = not db.questWarn
 		Print("warning when a quest item goes in the bank " .. (db.questWarn and "on" or "off"))
@@ -1393,6 +1424,8 @@ SlashCmdList.TIDYBAGS = function(msg)
 		print("  /tb questglow     - gold glow around quest items (now " .. (db.questGlow and "on" or "off") .. ")")
 		print("  /tb baginfo       - list your bags and their bag type numbers")
 		print("  /tb bagtypes      - colour and icon on herb, mining, leather ... bag slots (now " .. (db.bagTypes and "on" or "off") .. ")")
+		print("  /tb keyring       - show or hide the keyring slots (now " .. (db.showKeyring and "shown" or "hidden") .. ")")
+		print("  /tb options       - open the settings page (Options > AddOns > TidyBags)")
 		print("  /tb questwarn     - warn when a quest item goes in the bank (now " .. (db.questWarn and "on" or "off") .. ")")
 		print("  /tb reset         - move the windows back")
 		print("  /tb errors        - saved errors and blocked actions (/tb errors clear empties it)")
