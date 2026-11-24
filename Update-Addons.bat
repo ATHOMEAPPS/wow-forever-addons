@@ -2,8 +2,7 @@
 @echo off
 title Family addons updater
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$s = Get-Content -LiteralPath '%~f0' -Raw; Invoke-Expression $s"
-echo.
-pause
+if errorlevel 1 pause
 exit /b
 #>
 
@@ -18,8 +17,12 @@ exit /b
 #  carry GoldLedger's history over to Ledger once.
 #  Replaced folders are kept in %LOCALAPPDATA%\ForeverAddonsUpdater\backup.
 #
+#  Questions: just pressing Enter means YES. An addon you say no to is
+#  remembered and not asked again; at the end you can type A to add it after all.
+#
 #  For testing only: FA_SOURCE = a local zip instead of GitHub,
-#  FA_ADDONS = another AddOns folder, FA_YES = 1 answers yes to every question.
+#  FA_ADDONS = another AddOns folder, FA_YES = 1 answers every question with Enter,
+#  FA_ANSWERS = answers to use in order, separated by commas (empty = Enter).
 # ---------------------------------------------------------------------------
 
 $ErrorActionPreference = 'Stop'
@@ -28,13 +31,37 @@ $Renamed   = @{ 'GoldLedger' = 'Ledger' }      # old folder -> new folder
 $SavedVarRename = @{ 'GoldLedger' = @('GoldLedgerDB', 'LedgerDB') }
 $Home2     = Join-Path $env:LOCALAPPDATA 'ForeverAddonsUpdater'
 $PathFile  = Join-Path $Home2 'addons-folder.txt'
+$SkipFile  = Join-Path $Home2 'not-wanted.txt'   # addons the player said no to
+$script:Answers = $null
+if ($env:FA_ANSWERS -ne $null) { $script:Answers = [System.Collections.Queue]::new([string[]]($env:FA_ANSWERS -split ',')) }
 
 function Say($text, $color = 'Gray') { Write-Host $text -ForegroundColor $color }
 
+function Read-Answer($prompt) {
+    if ($script:Answers) {
+        $a = ''
+        if ($script:Answers.Count -gt 0) { $a = $script:Answers.Dequeue() }
+        Say "${prompt}: $a"
+        return $a
+    }
+    if ($env:FA_YES -eq '1') { Say "${prompt}:"; return '' }
+    return Read-Host $prompt
+}
+
+# Enter (or y) = yes, n = no
 function Ask($question) {
-    if ($env:FA_YES -eq '1') { Say "$question (y/n): y" ; return $true }
-    $a = Read-Host "$question (y/n)"
-    return $a -match '^\s*[yY]'
+    $a = Read-Answer "$question [Enter = yes, n = no]"
+    return -not ($a -match '^\s*[nN]')
+}
+
+function Get-NotWanted {
+    if (Test-Path -LiteralPath $SkipFile) { return @(Get-Content -LiteralPath $SkipFile | Where-Object { $_.Trim() -ne '' }) }
+    return @()
+}
+
+function Set-NotWanted($names) {
+    New-Item -ItemType Directory -Force -Path $Home2 | Out-Null
+    Set-Content -LiteralPath $SkipFile -Value ($names | Sort-Object -Unique)
 }
 
 function Get-TocVersion($tocPath) {
@@ -200,6 +227,8 @@ try {
 
     $installedNow = @($available.Keys | Where-Object { Test-Path -LiteralPath (Join-Path $addons $_) })
     $firstTime = $installedNow.Count -eq 0
+    $notWanted = @(Get-NotWanted)
+    $skipped = New-Object System.Collections.Generic.List[string]
 
     foreach ($name in ($available.Keys | Sort-Object)) {
         if ($handled[$name]) { continue }   # done above (renamed)
@@ -207,12 +236,18 @@ try {
         $target = Join-Path $addons $name
         $haveVer = Get-TocVersion (Join-Path $target "$name.toc")
         if (-not (Test-Path -LiteralPath $target)) {
-            if ($firstTime) { $q = "Install $name $($newVer)?" } else { $q = "New addon available: $name $newVer. Install it?" }
+            if ($notWanted -contains $name) {
+                $skipped.Add($name)          # said no before: don't ask again
+                continue
+            }
+            if ($firstTime) { $q = "Install $name $($newVer)?" } else { $q = "New addon available: $name $($newVer). Install it?" }
             if (Ask $q) {
                 Install-Addon $name
                 $summary.Add("$name $newVer installed")
             } else {
-                $summary.Add("$name skipped")
+                $notWanted += $name
+                Set-NotWanted $notWanted
+                $skipped.Add($name)
             }
         } elseif ((ConvertTo-Version $newVer) -gt (ConvertTo-Version $haveVer)) {
             Install-Addon $name
@@ -224,19 +259,37 @@ try {
         }
     }
 
-    Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
-
     Say ''
     Say 'Done:' Cyan
     foreach ($line in $summary) {
         if ($line -match 'updated|installed') { Say "  $line" Green } else { Say "  $line" }
     }
+    foreach ($name in $skipped) { Say "  $name not installed (you said no; you won't be asked again)" DarkGray }
     if (Test-Path -LiteralPath $backup) { Say "Old versions were saved in $backup" DarkGray }
     Say ''
     Say 'Start WoW. New addons are on by default (check the AddOns button at character select).'
+
+    # changed your mind? one key adds the skipped addons
+    if ($skipped.Count -gt 0) {
+        Say ''
+        $a = Read-Answer "Press Enter to close, or type A and press Enter to add: $($skipped -join ', ')"
+        if ($a -match '^\s*[aA]') {
+            foreach ($name in $skipped) {
+                Install-Addon $name
+                Say "  $name $($available[$name].Version) installed" Green
+            }
+            Set-NotWanted @($notWanted | Where-Object { $skipped -notcontains $_ })
+        }
+        $script:closed = $true
+    }
+    Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 }
 catch {
     Say ''
     Say "Something went wrong: $($_.Exception.Message)" Red
     Say 'Nothing was changed unless it says so above. Send a screenshot of this window to EonJoe.' Yellow
+}
+if (-not $script:closed) {
+    Say ''
+    [void](Read-Answer 'Press Enter to close')
 }

@@ -23,8 +23,9 @@ You need to do step 1 only once.
 3. **Double-click `Update-Addons.bat`.** A black window opens and does the rest:
    - It finds your `_forever_` folder by itself. If it can't, it asks you to pick it once.
    - It downloads the newest addons and updates the ones you have.
-   - The first time, it asks which addons to install. Type `y` and press Enter for each one you want.
-   - At the end it lists what changed. Press any key to close it.
+   - The first time, it asks about each addon. **Just press Enter** to install it, or type `n` and Enter to skip it.
+   - An addon you skip is remembered, so you won't be asked again. Changed your mind? At the end, type `A` and press Enter to add it.
+   - At the end it lists what changed. Press Enter to close it.
 
 4. **Start WoW** and play.
 
