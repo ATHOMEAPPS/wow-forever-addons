@@ -49,6 +49,7 @@ local db
 local liveBag = {}     -- liveBag[liveButton] = bag id (never stored on the button)
 local savedItem = {}   -- savedItem[savedButton] = saved item table or false
 local savedContainer = {} -- savedContainer[savedButton] = the saved container it belongs to
+local savedIsKey = {}  -- savedIsKey[savedButton] = true for a saved keyring slot
 local questGlow = {}   -- questGlow[button] = glow texture (side table, never on the button)
 local buttonCount = 0
 local syncing = false
@@ -119,7 +120,16 @@ local PALETTE = {
 	{ 1.00, 0.35, 0.60 }, { 0.35, 0.80, 0.90 }, { 0.25, 0.55, 1.00 }, { 0.85, 0.85, 0.85 },
 }
 
+-- The keyring (container -1) only takes keys. It gets its own section, a tint
+-- and the key icon, so its empty slots don't look like free bag space.
+local KEYRING_FAMILY = "keyring"
+local KEYRING_ICON = "Interface/ICONS/ui-hud-actionbar-keyring" -- Camelot MainMenuBarBagButtons.xml:135
+local KEYRING_TYPE = { name = "Keyring", color = { 0.55, 0.55, 0.60 } }
+
 local function BagType(family)
+	if family == KEYRING_FAMILY then
+		return KEYRING_TYPE
+	end
 	if type(family) ~= "number" or family == 0 then
 		return nil
 	end
@@ -427,7 +437,11 @@ function Window:UpdateSavedButton(b)
 	local isQuest = SavedIsQuest(item)
 	SetQuestGlow(b, db.questGlow and isQuest)
 	local container = savedContainer[b]
-	SetBagTypeLook(b, container and container.f, not (item and item.i), container and container.fi)
+	if savedIsKey[b] then
+		SetBagTypeLook(b, KEYRING_FAMILY, not (item and item.i), KEYRING_ICON)
+	else
+		SetBagTypeLook(b, container and container.f, not (item and item.i), container and container.fi)
+	end
 	b.searchOverlay:SetShown(item and not self:Matches(item.id, item.l, nil, isQuest) or false)
 end
 
@@ -451,7 +465,7 @@ function Window:Layout()
 	wipe(self.shownSaved)
 
 	-- 1. collect every slot, split into quest items and everything else
-	local questList, restList = {}, {}
+	local questList, restList, keyList = {}, {}, {}
 	local splitQuests = db.questSection
 
 	self.isLive = self:IsLive()
@@ -459,30 +473,48 @@ function Window:Layout()
 	wipe(self.bagIcon)
 	if self.isLive then
 		for _, bag in ipairs(self:LiveBags()) do
-			local ok, _, family = pcall(C_Container.GetContainerNumFreeSlots, bag)
-			self.bagFamily[bag] = ok and family or nil
-			self.bagIcon[bag] = BagType(self.bagFamily[bag]) and BagIcon(bag) or nil
-			for slot = 1, C_Container.GetContainerNumSlots(bag) do
+			local isKeyring = bag == KEYRING_CONTAINER
+			local numSlots = C_Container.GetContainerNumSlots(bag)
+			if isKeyring then -- every slot stays visible, in its own labelled section
+				self.bagFamily[bag] = KEYRING_FAMILY
+				self.bagIcon[bag] = KEYRING_ICON
+			else
+				local ok, _, family = pcall(C_Container.GetContainerNumFreeSlots, bag)
+				self.bagFamily[bag] = ok and family or nil
+				self.bagIcon[bag] = BagType(self.bagFamily[bag]) and BagIcon(bag) or nil
+			end
+			for slot = 1, numSlots do
 				local b = self:GetLiveButton(bag, slot)
 				local entry = { b, bag, slot }
 				tinsert(self.shownLive, entry)
-				local isQuest = splitQuests and ns.IsQuestItem(C_Container.GetContainerItemID(bag, slot),
-					C_Container.GetContainerItemQuestInfo(bag, slot))
-				tinsert(isQuest and questList or restList, b)
+				if isKeyring then
+					tinsert(keyList, b)
+				else
+					local isQuest = splitQuests and ns.IsQuestItem(C_Container.GetContainerItemID(bag, slot),
+						C_Container.GetContainerItemQuestInfo(bag, slot))
+					tinsert(isQuest and questList or restList, b)
+				end
 			end
 		end
 	else
 		local n = 0
 		for _, entry in ipairs(self:SavedContainers()) do
 			local container = entry[2]
-			for slot = 1, container.size or 0 do
+			local isKeyring = entry[1] == KEYRING_CONTAINER
+			local numSlots = container.size or 0
+			for slot = 1, numSlots do
 				n = n + 1
 				local b = self:GetSavedButton(n)
 				local item = container[slot] or false
 				savedItem[b] = item
 				savedContainer[b] = container
+				savedIsKey[b] = isKeyring or nil
 				tinsert(self.shownSaved, b)
-				tinsert((splitQuests and SavedIsQuest(item)) and questList or restList, b)
+				if isKeyring then
+					tinsert(keyList, b)
+				else
+					tinsert((splitQuests and SavedIsQuest(item)) and questList or restList, b)
+				end
 			end
 		end
 	end
@@ -513,11 +545,15 @@ function Window:Layout()
 
 	self.questHeader:Hide()
 	self.itemsHeader:Hide()
+	self.keyHeader:Hide()
 	if #questList > 0 then
 		PlaceSection(questList, self.questHeader)
 		PlaceSection(restList, self.itemsHeader)
 	else
 		PlaceSection(restList)
+	end
+	if #keyList > 0 then
+		PlaceSection(keyList, self.keyHeader)
 	end
 
 	for _, slots in pairs(self.live) do
@@ -563,9 +599,11 @@ function Window:UpdateAll()
 	end
 	for _, b in ipairs(self.shownSaved) do
 		self:UpdateSavedButton(b)
-		total = total + 1
-		if not savedItem[b] then
-			free = free + 1
+		if not savedIsKey[b] then -- the keyring isn't bag space (same as live)
+			total = total + 1
+			if not savedItem[b] then
+				free = free + 1
+			end
 		end
 	end
 	self.freeText:SetFormattedText("%d / %d free", free, total)
@@ -810,6 +848,9 @@ local function CreateWindow(kind, globalName)
 	w.itemsHeader = w.content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 	w.itemsHeader:SetText("Everything else")
 	w.itemsHeader:SetTextColor(0.7, 0.7, 0.7)
+	w.keyHeader = w.content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	w.keyHeader:SetText("Keyring (keys only)")
+	w.keyHeader:SetTextColor(0.7, 0.7, 0.75)
 
 	w.empty = w.content:CreateFontString(nil, "OVERLAY", "GameFontDisable")
 	w.empty:SetPoint("TOPLEFT", 4, -2)

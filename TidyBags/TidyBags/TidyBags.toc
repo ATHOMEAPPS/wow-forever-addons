@@ -3,7 +3,7 @@
 ## IconTexture: Interface\AddOns\TidyBags\icon
 ## Notes: Bag and bank windows that remember every character's items. Uses Blizzard's own item buttons so using items never gets blocked. Made for the Family.
 ## Author: Claude and EonJoe
-## Version: 2.6
+## Version: 2.7
 ## SavedVariables: TidyBagsDB, TidyBagsData
 
 Errors.lua

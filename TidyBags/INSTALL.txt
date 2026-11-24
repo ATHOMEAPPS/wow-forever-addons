@@ -1,4 +1,4 @@
-TidyBags 2.6 - install on another computer
+TidyBags 2.7 - install on another computer
 ==========================================
 Made for the Family, by Claude and EonJoe.
 
