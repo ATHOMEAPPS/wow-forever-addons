@@ -13,7 +13,8 @@
 	  unsold = { [itemID] = { { d = day, c = charKey, m = mobKey, n = count }, ... } },  -- oldest first
 	}
 	charKey: the looting character's GUID (ns.me). Loot recorded before v2.1 had no
-	character; it was moved under "old" and only shows with "All characters".
+	character; it was moved under "old" and shows on EVERY character's view
+	(never hidden, never deleted: the user's rule is that updates keep all data).
 	A sale is credited to the character who LOOTED the item (its own lots first,
 	then other characters' lots, e.g. silk mailed to an alt and sold there).
 	mobKey: the creature's npc ID ("1234"), "g:<zone>" for herbs/ore/chests,
@@ -392,6 +393,9 @@ function ns.LootTotals(from, to, chars)
 	if chars then
 		wanted = {}
 		for _, c in ipairs(chars) do wanted[c] = true end
+		-- loot from before 2.1 has no character: show it on every character,
+		-- so nothing the player already had ever looks gone
+		wanted.old = true
 	end
 	local mobs = {}
 	for day, byChar in pairs(db and db.days or {}) do

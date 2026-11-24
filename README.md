@@ -6,7 +6,7 @@ Three addons for the World of Warcraft **_forever_** client (interface 16001).
 
 | Addon | Version | What it does |
 |---|---|---|
-| [Ledger](Ledger/) | 2.1 | Gold ledger: where every coin came from and went, by period and character, with search. **New:** a loot table (each character's own, or all together) of what each mob dropped and what it sold for, plus "who drops it" (type an item such as silk to see which mob drops the most), and a way to clear old data. Also an on-screen "coin earned" counter. `/ledger` or `/gl`. *Was called GoldLedger up to 1.3.* |
+| [Ledger](Ledger/) | 2.2 | Gold ledger: where every coin came from and went, by period and character, with search. **New:** a loot table (each character's own, or all together) of what each mob dropped and what it sold for, plus "who drops it" (type an item such as silk to see which mob drops the most), and a way to clear old data. Also an on-screen "coin earned" counter. `/ledger` or `/gl`. *Was called GoldLedger up to 1.3.* |
 | [TidyBags](TidyBags/) | 2.6 | One bag window and a bank window (Character / Warband), with search, sort, saved bags and banks for every character, and item counts in tooltips. Profession bag slots get a light colour and the bag's icon. Both windows can be resized from the corner. **New:** saves errors and "blocked action" messages so problems can be fixed (`/tb errors`). `/tb` |
 | [TidyChat](TidyChat/) | 1.4 | A "Tells" chat tab for whispers and party chat (offered on screen at first login), a "While you were away" list of what was said while you were AFK (each character has its own), a taskbar flash on whispers, and easier-to-read chat (no fading, timestamps, class colours). `/tc` |
 
