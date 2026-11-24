@@ -80,6 +80,9 @@ local EARNED_FONT, _, EARNED_FLAGS = counter.earned:GetFont()
 counter.line2 = counter:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 counter.line2:SetJustifyH("LEFT")
 
+counter.current = counter:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+counter.current:SetJustifyH("LEFT")
+
 counter.line3 = counter:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 counter.line3:SetJustifyH("LEFT")
 
@@ -113,9 +116,17 @@ function ns.UpdateCounter()
 	local perHour = elapsed >= 60 and (c.earned / elapsed * 3600) or 0
 
 	-- which parts to show (each can be turned off in Options > AddOns > Ledger)
-	local parts2, parts3 = {}, {}
+	local parts2, partsCur, parts3 = {}, {}, {}
 	if On("showSpent") then tinsert(parts2, "|cffff7070Spent|r " .. ns.Money(c.spent)) end
 	if On("showNet") then tinsert(parts2, "|cffffd100Net|r " .. ns.Money(net, true)) end
+	if On("showCurrent") then
+		-- the gold you have now (GetMoney can be 0 early at login: use the saved amount then)
+		local money = GetMoney()
+		if money == 0 and char.money then
+			money = char.money
+		end
+		tinsert(partsCur, "|cffffd100Current|r " .. ns.Money(money))
+	end
 	if On("showTime") then tinsert(parts3, Duration(elapsed)) end
 	if On("showPerHour") then tinsert(parts3, ns.Money(perHour) .. " / hour") end
 	local showEarned, showIcon, showReset = On("showEarned"), On("showCoinIcon"), On("showResetButton")
@@ -141,7 +152,7 @@ function ns.UpdateCounter()
 		width = left + counter.earned:GetStringWidth() + (showReset and 26 or 0)
 		y = y - max(size + 2, showReset and 16 or 0) - 4
 	end
-	for _, line in ipairs({ { counter.line2, parts2 }, { counter.line3, parts3 } }) do
+	for _, line in ipairs({ { counter.line2, parts2 }, { counter.current, partsCur }, { counter.line3, parts3 } }) do
 		local fs, parts = line[1], line[2]
 		fs:SetShown(#parts > 0)
 		if #parts > 0 then
@@ -152,7 +163,7 @@ function ns.UpdateCounter()
 			y = y - fs:GetStringHeight() - 3
 		end
 	end
-	if not showEarned and #parts2 == 0 and #parts3 == 0 then
+	if not showEarned and #parts2 == 0 and #partsCur == 0 and #parts3 == 0 then
 		counter.line2:Show()
 		counter.line2:ClearAllPoints()
 		counter.line2:SetPoint("TOPLEFT", pad, y)
@@ -1047,6 +1058,56 @@ local function ViewChars()
 	return { ledger.view.char or ns.me }
 end
 
+-- "Current" gold, on the Gold view's summary line after Earned / Spent / Net:
+-- the picked character's gold, or every character's added up. Your own is live
+-- (GetMoney); the others are what they had when last played (char.money, kept by
+-- Tracker.lua). Mouse-over on the summary line lists every character.
+local function CharMoney(key)
+	local char = ns.Char(key)
+	if key == ns.me then
+		local money = GetMoney()
+		if money > 0 or not (char and char.money) then
+			return money
+		end
+	end
+	return char and char.money or 0
+end
+
+local function OnHandText()
+	local total = 0
+	for _, key in ipairs(ViewChars()) do
+		total = total + CharMoney(key)
+	end
+	return "     |cffffd100Current|r " .. ns.Money(total)
+end
+
+local goldSummary, goldMoved -- the Gold view's summary text before and after Current (RefreshLedger)
+
+local summaryHover = CreateFrame("Frame", nil, ledger) -- our own frame, over the summary line
+summaryHover:SetPoint("TOPLEFT", summary, "TOPLEFT")
+summaryHover:SetPoint("BOTTOMRIGHT", summary, "BOTTOMRIGHT")
+summaryHover:EnableMouse(true)
+summaryHover:SetScript("OnEnter", function(self)
+	GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+	GameTooltip:SetText("Current gold")
+	local total = 0
+	for _, key in ipairs(ns.SortedChars()) do
+		local money = CharMoney(key)
+		total = total + money
+		GameTooltip:AddDoubleLine(ns.ClassColored(ns.Char(key)), ns.Money(money), 1, 1, 1, 1, 1, 1)
+	end
+	GameTooltip:AddDoubleLine("Total", ns.Money(total), 1, 0.82, 0, 1, 1, 1)
+	GameTooltip:AddLine("Other characters show what they had when last played.", 0.6, 0.6, 0.6, true)
+	GameTooltip:Show()
+end)
+summaryHover:SetScript("OnLeave", GameTooltip_Hide)
+
+ns.On("PLAYER_MONEY", function()
+	if ledger:IsShown() and ledger.view.mode ~= "loot" and goldSummary then
+		summary:SetText(goldSummary .. OnHandText() .. (goldMoved or ""))
+	end
+end)
+
 local function CurrentPeriod()
 	for _, period in ipairs(ns.Periods) do
 		if period.key == ledger.view.period then
@@ -1091,6 +1152,7 @@ function ns.RefreshLedger(scrollOnly)
 		listPanel:SetShown(not loot)
 		mobPanel:SetShown(loot)
 		lootPanel:SetShown(loot)
+		summaryHover:SetShown(not loot)
 		if loot then
 			-- same picker as Gold: your character, another one, or All characters
 			RefreshLoot(from, to, false, view.char == "all" and nil or chars)
@@ -1103,10 +1165,11 @@ function ns.RefreshLedger(scrollOnly)
 		local text = "|cff40ff40Earned|r " .. ns.Money(income)
 			.. "     |cffff5050Spent|r " .. ns.Money(expense)
 			.. "     |cffffd100Net|r " .. ns.Money(net, true)
+		goldSummary, goldMoved = text, ""
 		if tIn + tOut > 0 then
-			text = text .. "     |cff999999Moved between own characters/banks: in " .. ns.Money(tIn) .. ", out " .. ns.Money(tOut) .. "|r"
+			goldMoved = "     |cff999999Moved between own characters/banks: in " .. ns.Money(tIn) .. ", out " .. ns.Money(tOut) .. "|r"
 		end
-		summary:SetText(text)
+		summary:SetText(goldSummary .. OnHandText() .. goldMoved)
 
 		-- category list: income, then expenses, then transfers
 		local rows = {}
