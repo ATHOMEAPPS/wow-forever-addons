@@ -1,0 +1,34 @@
+TidyChat 1.3 - install on another computer
+==========================================
+Made for the Family, by Claude and EonJoe.
+
+Works on: the World of Warcraft "_forever_" client (interface 16001).
+
+1. Close World of Warcraft.
+
+2. Copy the whole "TidyChat" folder (next to this file, with
+   TidyChat.toc, Core.lua, UI.lua and Options.lua inside) into:
+
+     C:\Program Files (x86)\World of Warcraft\_forever_\Interface\AddOns\
+
+   (Or unzip TidyChat.zip into that AddOns folder.)
+
+3. Start WoW. At character select click "AddOns" and turn ON TidyChat.
+
+4. Log in. After a few seconds TidyChat asks: "Make a Tells chat tab?"
+   Click "Make the tab", then "Reload now". The tab is saved by the game,
+   so this is needed only once per computer.
+   (Missed it? Type /tc setup, or use Options > AddOns > TidyChat.)
+
+Notes
+-----
+- While you are AFK, whispers and party chat are saved. When you come
+  back, a "While you were away" window shows them. /tc opens it any time.
+- Options: Options > AddOns > TidyChat, or /tc options.
+- /tc            show what was said while you were away
+  /tc setup      make the Tells tab
+  /tc clear      clear the away list
+  /tc test       add test messages to see the window
+  /tc status     is TidyChat saving right now?
+  /tc errors     show recent errors
+- Font size and background of a chat tab: right-click the tab.
