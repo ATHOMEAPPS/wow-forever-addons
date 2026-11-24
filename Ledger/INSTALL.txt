@@ -1,4 +1,4 @@
-Ledger 2.0 - install on another computer
+Ledger 2.1 - install on another computer
 ========================================
 Made for the Family, by Claude and EonJoe.
 

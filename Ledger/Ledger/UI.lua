@@ -15,6 +15,19 @@ local BACKDROP = {
 	insets = { left = 4, right = 4, top = 4, bottom = 4 },
 }
 
+-- the chosen button glows with white text; the others stay normal and clickable
+-- (v2.1: before, the chosen one was disabled, which looked greyed out / broken)
+local function MarkSelected(button, selected)
+	button:SetEnabled(true)
+	if selected then
+		button:LockHighlight()
+		button:SetNormalFontObject("GameFontHighlight")
+	else
+		button:UnlockHighlight()
+		button:SetNormalFontObject("GameFontNormal")
+	end
+end
+
 local function SavePosition(frame, key)
 	local point, _, relPoint, x, y = frame:GetPoint()
 	settings[key] = { point, relPoint, x, y }
@@ -777,9 +790,13 @@ end
 local lootList = {}
 
 -- build the table and the mob list for this period
-local function BuildLoot(from, to)
+local function BuildLoot(from, to, chars)
 	local view = ledger.view
-	local mobs = ns.LootTotals(from, to)
+	local mobs = ns.LootTotals(from, to, chars)
+	local whose = chars and ns.ClassColored(ns.Char(chars[1])) or "all characters"
+	if not chars then
+		whose = "all characters"
+	end
 	local list = {}
 	local text = view.search or ""
 
@@ -823,7 +840,8 @@ local function BuildLoot(from, to)
 			return a.n > b.n
 		end)
 		heads = { "Mob  (best first; click for all its drops)", "Looted", "Dropped", "Per corpse", "Sold for" }
-		lootHeader:SetText(format("Who drops \"%s\"  |cff999999(mobs looted fewer than %d times are listed last)|r", text, MIN_CORPSES))
+		lootHeader:SetText(format("Who drops \"%s\" for %s  |cff999999(looted fewer than %d times: listed last%s)|r", text, whose, MIN_CORPSES,
+			chars and "; pick All characters for more kills" or ""))
 	elseif view.mob and mobs[view.mob] then
 		-- one mob's drops
 		local t = mobs[view.mob]
@@ -857,7 +875,7 @@ local function BuildLoot(from, to)
 			return a.n > b.n
 		end)
 		heads = { "Item  (click: who drops it)", "Looted", "Sold", "Sold for", "Not sold (vendor)" }
-		lootHeader:SetText("Everything looted from mobs, all characters  |cff999999(type an item in Search to see who drops it)|r")
+		lootHeader:SetText("Everything looted from mobs by " .. whose .. "  |cff999999(type an item in Search to see who drops it)|r")
 	end
 	colHeader.name:SetText(heads[1])
 	for c = 1, 4 do
@@ -918,9 +936,9 @@ local function ShowLootRows()
 	lootPage:SetText(#lootList > 0 and format("%d-%d of %d", view.lootOffset + 1, min(view.lootOffset + ROWS, #lootList), #lootList) or "")
 end
 
-local function RefreshLoot(from, to, scrollOnly)
+local function RefreshLoot(from, to, scrollOnly, chars)
 	if not scrollOnly then
-		lootList = BuildLoot(from, to)
+		lootList = BuildLoot(from, to, chars)
 		local maxOffset = max(0, #lootList - ROWS)
 		lootScroll:SetMinMaxValues(0, maxOffset)
 		lootScroll:SetShown(maxOffset > 0)
@@ -980,7 +998,7 @@ for i, choice in ipairs(ns.ClearChoices) do
 	b:SetScript("OnClick", function()
 		clearChoice = choice
 		for _, other in ipairs(clearButtons) do
-			other:SetEnabled(other ~= b)
+			MarkSelected(other, other == b)
 		end
 		local cutoff = ns.ClearCutoff(choice.months)
 		local lines, days, lootDays = ns.CountBefore(cutoff)
@@ -1012,7 +1030,7 @@ end)
 function ns.ShowClear()
 	clearChoice = nil
 	for _, b in ipairs(clearButtons) do
-		b:Enable()
+		MarkSelected(b, false)
 	end
 	clearInfo:SetText("Nothing is removed until you press Clear it.")
 	clearYes:Disable()
@@ -1054,7 +1072,7 @@ function ns.RefreshLedger(scrollOnly)
 		local who = view.char == "all" and "All characters" or ns.ClassColored(ns.Char(view.char))
 		charButton:SetText(who)
 		for key, b in pairs(periodButtons) do
-			b:SetEnabled(key ~= view.period)
+			MarkSelected(b, key == view.period)
 		end
 		if from > 0 then
 			local last = to - 1
@@ -1067,16 +1085,15 @@ function ns.RefreshLedger(scrollOnly)
 		-- Gold or Loot
 		local loot = view.mode == "loot"
 		for key, b in pairs(modeButtons) do
-			b:SetEnabled(key ~= view.mode)
+			MarkSelected(b, key == view.mode)
 		end
 		catPanel:SetShown(not loot)
 		listPanel:SetShown(not loot)
 		mobPanel:SetShown(loot)
 		lootPanel:SetShown(loot)
-		charButton:SetEnabled(not loot)
 		if loot then
-			charButton:SetText("All characters") -- the loot table is shared
-			RefreshLoot(from, to)
+			-- same picker as Gold: your character, another one, or All characters
+			RefreshLoot(from, to, false, view.char == "all" and nil or chars)
 			return
 		end
 
@@ -1162,7 +1179,7 @@ function ns.RefreshLedger(scrollOnly)
 	end
 
 	if view.mode == "loot" then
-		RefreshLoot(from, to, true)
+		RefreshLoot(from, to, true, view.char == "all" and nil or chars)
 		return
 	end
 

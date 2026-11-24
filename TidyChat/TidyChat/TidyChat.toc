@@ -3,7 +3,7 @@
 ## IconTexture: Interface\AddOns\TidyChat\icon
 ## Notes: A Tells tab for whispers and party chat, easier-to-read chat, whisper alerts, and a "While you were away" list of what you missed while AFK. Made for the Family.
 ## Author: Claude and EonJoe
-## Version: 1.3
+## Version: 1.4
 ## SavedVariables: TidyChatDB
 
 Core.lua

@@ -7,11 +7,15 @@
 	  mobs   = { [mobKey] = { n = name, z = zone } },
 	  items  = { [itemID] = { n = name, l = link, p = vendor price, q = quality } },
 	  names  = { [lower-case item name] = itemID },          -- AH mail only gives the name
-	  days   = { ["2026-11-24"] = { [mobKey] = {
+	  days   = { ["2026-11-24"] = { [charKey] = { [mobKey] = {
 	               k = corpses looted, c = coin copper,
-	               i = { [itemID] = { n = looted, s = sold, v = sold for (copper) } } } } },
-	  unsold = { [itemID] = { { d = day, m = mobKey, n = count }, ... } },  -- oldest first
+	               i = { [itemID] = { n = looted, s = sold, v = sold for (copper) } } } } } },
+	  unsold = { [itemID] = { { d = day, c = charKey, m = mobKey, n = count }, ... } },  -- oldest first
 	}
+	charKey: the looting character's GUID (ns.me). Loot recorded before v2.1 had no
+	character; it was moved under "old" and only shows with "All characters".
+	A sale is credited to the character who LOOTED the item (its own lots first,
+	then other characters' lots, e.g. silk mailed to an alt and sold there).
 	mobKey: the creature's npc ID ("1234"), "g:<zone>" for herbs/ore/chests,
 	"f:<zone>" for fishing, "?" when the source can't be told.
 
@@ -122,6 +126,24 @@ end
 
 --[[ Reading the loot window ]]--
 
+-- days[day][char][mob], created when missing
+local function MobRecord(day, char, key)
+	local dayData = db.days[day] or {}
+	db.days[day] = dayData
+	local charData = dayData[char] or {}
+	dayData[char] = charData
+	local m = charData[key]
+	if not m then
+		m = { k = 0, c = 0, i = {} }
+		charData[key] = m
+	end
+	return m
+end
+
+local function Me()
+	return ns.me or "?"
+end
+
 local function ItemID(link)
 	return link and tonumber(link:match("|Hitem:(%d+)"))
 end
@@ -207,17 +229,11 @@ function Commit()
 		return
 	end
 	local day = ns.DayKey(time())
-	local dayData = db.days[day] or {}
-	db.days[day] = dayData
+	local me = Me()
 	local counted = {}
 
 	local function Mob(key)
-		local m = dayData[key]
-		if not m then
-			m = { k = 0, c = 0, i = {} }
-			dayData[key] = m
-		end
-		return m
+		return MobRecord(day, me, key)
 	end
 
 	for slot, info in pairs(s.slots) do
@@ -261,10 +277,10 @@ function Commit()
 				local lots = db.unsold[info.id] or {}
 				db.unsold[info.id] = lots
 				local last = lots[#lots]
-				if last and last.d == day and last.m == key then
+				if last and last.d == day and last.m == key and last.c == me then
 					last.n = last.n + count
 				else
-					tinsert(lots, { d = day, m = key, n = count })
+					tinsert(lots, { d = day, c = me, m = key, n = count })
 				end
 				while #lots > UNSOLD_MAX do
 					tremove(lots, 1)
@@ -287,11 +303,7 @@ function ns.OnLootCoin(amount)
 	if not db or not lastCoin or GetTime() - lastCoin.t > COIN_SECONDS then
 		return
 	end
-	local day = ns.DayKey(time())
-	local dayData = db.days[day] or {}
-	db.days[day] = dayData
-	local m = dayData[lastCoin.mob] or { k = 0, c = 0, i = {} }
-	dayData[lastCoin.mob] = m
+	local m = MobRecord(ns.DayKey(time()), Me(), lastCoin.mob)
 	m.c = (m.c or 0) + amount
 	Debug(" coin", amount, "from", lastCoin.mob)
 	lastCoin = nil
@@ -314,18 +326,29 @@ function ns.OnItemSold(itemID, name, count, received)
 	end
 	local each = (received or 0) / count
 	local left = count
-	while left > 0 and #lots > 0 do
-		local lot = lots[1]
-		local take = min(left, lot.n)
-		local rec = db.days[lot.d] and db.days[lot.d][lot.m] and db.days[lot.d][lot.m].i[itemID]
-		if rec then
-			rec.s = rec.s + take
-			rec.v = rec.v + floor(each * take + 0.5)
-		end
-		lot.n = lot.n - take
-		left = left - take
-		if lot.n <= 0 then
-			tremove(lots, 1)
+	local me = Me()
+	for pass = 1, 2 do
+		local i = 1
+		while left > 0 and i <= #lots do
+			local lot = lots[i]
+			if pass == 2 or lot.c == me then
+				local take = min(left, lot.n)
+				local byChar = db.days[lot.d] and db.days[lot.d][lot.c or "old"]
+				local rec = byChar and byChar[lot.m] and byChar[lot.m].i[itemID]
+				if rec then
+					rec.s = rec.s + take
+					rec.v = rec.v + floor(each * take + 0.5)
+				end
+				lot.n = lot.n - take
+				left = left - take
+				if lot.n <= 0 then
+					tremove(lots, i)
+				else
+					i = i + 1
+				end
+			else
+				i = i + 1
+			end
 		end
 	end
 	if #lots == 0 then
@@ -359,14 +382,22 @@ function ns.LootItem(id)
 	return db and db.items[id]
 end
 
--- everything looted between two times, added up:
+-- everything looted between two times by these characters, added up.
+-- chars: a list of character keys, or nil for every character (including "old").
 -- mobs[key] = { k, c, n (items), s, v, i[itemID] = { n, s, v } }
-function ns.LootTotals(from, to)
+function ns.LootTotals(from, to, chars)
 	local fromKey = from == 0 and "0000" or ns.DayKey(from)
 	local toKey = ns.DayKey(min(to, 2 ^ 31 - 1) - 1)
+	local wanted
+	if chars then
+		wanted = {}
+		for _, c in ipairs(chars) do wanted[c] = true end
+	end
 	local mobs = {}
-	for day, list in pairs(db and db.days or {}) do
+	for day, byChar in pairs(db and db.days or {}) do
 		if day >= fromKey and day <= toKey then
+			for char, list in pairs(byChar) do
+			if not wanted or wanted[char] then
 			for key, m in pairs(list) do
 				local t = mobs[key] or { k = 0, c = 0, n = 0, s = 0, v = 0, i = {} }
 				mobs[key] = t
@@ -378,6 +409,8 @@ function ns.LootTotals(from, to)
 					r.n, r.s, r.v = r.n + rec.n, r.s + rec.s, r.v + rec.v
 					t.n, t.s, t.v = t.n + rec.n, t.s + rec.s, t.v + rec.v
 				end
+			end
+			end
 			end
 		end
 	end
@@ -410,10 +443,12 @@ function ns.LootClearBefore(cutKey)
 	end
 	-- forget mobs and items nothing points to any more
 	local usedMobs, usedItems = {}, {}
-	for _, list in pairs(db.days) do
-		for key, m in pairs(list) do
-			usedMobs[key] = true
-			for id in pairs(m.i or {}) do usedItems[id] = true end
+	for _, byChar in pairs(db.days) do
+		for _, list in pairs(byChar) do
+			for key, m in pairs(list) do
+				usedMobs[key] = true
+				for id in pairs(m.i or {}) do usedItems[id] = true end
+			end
 		end
 	end
 	for key in pairs(db.mobs) do
@@ -438,4 +473,14 @@ ns.On("PLAYER_LOGIN", function()
 	db.names = db.names or {}
 	db.days = db.days or {}
 	db.unsold = db.unsold or {}
+	-- v2.0 saved days[day][mob]; v2.1 saves days[day][character][mob].
+	-- Old records had no character: they go under "old" (shown with All characters).
+	for day, list in pairs(db.days) do
+		for _, v in pairs(list) do
+			if type(v) == "table" and v.k ~= nil then
+				db.days[day] = { old = list }
+			end
+			break
+		end
+	end
 end)

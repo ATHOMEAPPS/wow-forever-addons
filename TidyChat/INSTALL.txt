@@ -1,4 +1,4 @@
-TidyChat 1.3 - install on another computer
+TidyChat 1.4 - install on another computer
 ==========================================
 Made for the Family, by Claude and EonJoe.
 

@@ -24,8 +24,10 @@
 	secret), and after lockdown ends tries C_ChatInfo.GetChatLineText(lineID).
 
 	TidyChatDB = {
-	  settings = { ... },
-	  away = { start = time, stop = time or nil,
+	  settings = { ... },                 -- shared by every character
+	  awayByChar = { [player GUID] = away, ... },   -- v1.4: each character's own list
+	  away = { start = time, stop = time or nil,     -- while playing: this character's list
+	                                                 -- (filed back into awayByChar at logout)
 	           list = { { t = time, k = kind, from = "Name", class = "PRIEST", text = "..." ,
 	                      line = lineID (only while waiting for a secret message) } } },
 	  errors = { { t, where, msg } },
@@ -436,6 +438,17 @@ ns.On("PLAYER_LOGIN", function()
 		end
 	end
 	ns.ApplyFading()
+	-- v1.4: each character has its own "While you were away" list. The rest of
+	-- TidyChat uses TidyChatDB.away, so swap this character's list in here and
+	-- file it back at logout. (A list saved by 1.3 goes to whoever logs in first.)
+	local me = UnitGUID("player")
+	TidyChatDB.awayByChar = TidyChatDB.awayByChar or {}
+	if me and not issecretvalue(me) then
+		ns.me = me
+		if TidyChatDB.awayByChar[me] ~= nil or not TidyChatDB.away then
+			TidyChatDB.away = TidyChatDB.awayByChar[me]
+		end
+	end
 	-- an AFK spell from the last session is over; keep its list for /tc
 	if TidyChatDB.away and not TidyChatDB.away.stop then
 		TidyChatDB.away.stop = time()
@@ -450,6 +463,15 @@ ns.On("PLAYER_LOGIN", function()
 				ns.Error("timer", err)
 			end
 		end)
+	end
+end)
+
+-- file this character's away list back under its own name
+ns.On("PLAYER_LOGOUT", function()
+	if TidyChatDB and ns.me then
+		TidyChatDB.awayByChar = TidyChatDB.awayByChar or {}
+		TidyChatDB.awayByChar[ns.me] = TidyChatDB.away
+		TidyChatDB.away = nil
 	end
 end)
 
