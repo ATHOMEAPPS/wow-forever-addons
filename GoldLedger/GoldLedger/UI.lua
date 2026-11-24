@@ -263,6 +263,47 @@ ledger:SetScript("OnDragStop", function(self)
 	SavePosition(self, "ledgerPos")
 end)
 
+-- resize grip (bottom right): dragging it changes the window's scale, so the
+-- lists, buttons and text all grow and shrink together. The top-left corner stays put.
+do
+	local grip = CreateFrame("Button", nil, ledger)
+	grip:SetSize(16, 16)
+	grip:SetPoint("BOTTOMRIGHT", -3, 3)
+	grip:SetFrameLevel(ledger:GetFrameLevel() + 20)
+	grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+	grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+	grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+	local startX, startWidth, startScale, left, top
+	local function Resizing()
+		local x = GetCursorPosition()
+		local scale = startScale * (startWidth + (x - startX)) / startWidth
+		scale = max(0.5, min(2, floor(scale * 100 + 0.5) / 100))
+		ledger:SetScale(scale)
+		local eff = ledger:GetEffectiveScale()
+		ledger:ClearAllPoints()
+		ledger:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left / eff, top / eff)
+		settings.ledgerScale = scale
+	end
+	grip:SetScript("OnMouseDown", function()
+		local eff = ledger:GetEffectiveScale()
+		startX = GetCursorPosition()
+		startWidth = ledger:GetWidth() * eff
+		startScale = ledger:GetScale()
+		left, top = ledger:GetLeft() * eff, ledger:GetTop() * eff
+		grip:SetScript("OnUpdate", Resizing)
+	end)
+	grip:SetScript("OnMouseUp", function()
+		grip:SetScript("OnUpdate", nil)
+		SavePosition(ledger, "ledgerPos")
+	end)
+	grip:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText("Drag to resize")
+		GameTooltip:Show()
+	end)
+	grip:SetScript("OnLeave", GameTooltip_Hide)
+end
+
 ledger.view = { char = nil, period = "today", cat = nil, sign = nil, offset = 0 }
 
 local title = ledger:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -650,6 +691,8 @@ ns.On("PLAYER_LOGIN", function()
 		settings.showCounter = true
 	end
 	LoadPosition(counter, "counterPos", { "TOP", UIParent, "TOP", 0, -120 })
+	settings.ledgerScale = settings.ledgerScale or 1
+	ledger:SetScale(settings.ledgerScale)
 	LoadPosition(ledger, "ledgerPos", { "CENTER", UIParent, "CENTER", 0, 40 })
 	if settings.counterTooltip == nil then
 		settings.counterTooltip = true

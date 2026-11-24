@@ -39,15 +39,16 @@ local CHARACTER = Enum.BankType and Enum.BankType.Character or 0
 local ACCOUNT = Enum.BankType and Enum.BankType.Account or 2
 
 local DEFAULTS = {
-	columns = 10, bankColumns = 14, scale = 1,
+	columns = 10, bankColumns = 14, scale = 1, bankScale = 1,
 	autoSort = false, autoSortBank = false, tooltipCounts = true,
-	questSection = true, questGlow = true, questWarn = true,
+	questSection = true, questGlow = true, questWarn = true, bagTypes = true,
 	pos = {},
 }
 
 local db
 local liveBag = {}     -- liveBag[liveButton] = bag id (never stored on the button)
 local savedItem = {}   -- savedItem[savedButton] = saved item table or false
+local savedContainer = {} -- savedContainer[savedButton] = the saved container it belongs to
 local questGlow = {}   -- questGlow[button] = glow texture (side table, never on the button)
 local buttonCount = 0
 local syncing = false
@@ -104,6 +105,74 @@ local function SetQuestGlow(b, on)
 		questGlow[b] = glow
 	end
 	glow:SetShown(on and true or false)
+end
+
+-- Profession bags. GetContainerNumFreeSlots returns the bag's type (bagFamily);
+-- 0 is a normal bag. Forever uses its own numbers, so only numbers read in game
+-- go in FOREVER_BAG_TYPES (see tmp/resources/bag-types.md). Any other non-zero
+-- type still gets a colour from PALETTE, so every kind of bag looks different.
+local FOREVER_BAG_TYPES = {
+	[33554432] = { name = "Leatherworking bag", color = { 0.95, 0.45, 0.10 } }, -- Apprentice's Skinning Satchel, seen 2026-11-23
+}
+local PALETTE = {
+	{ 0.20, 0.85, 0.25 }, { 0.75, 0.55, 0.30 }, { 0.70, 0.35, 1.00 }, { 0.95, 0.85, 0.20 },
+	{ 1.00, 0.35, 0.60 }, { 0.35, 0.80, 0.90 }, { 0.25, 0.55, 1.00 }, { 0.85, 0.85, 0.85 },
+}
+
+local function BagType(family)
+	if type(family) ~= "number" or family == 0 then
+		return nil
+	end
+	local known = FOREVER_BAG_TYPES[family]
+	if known then
+		return known
+	end
+	return { name = "Bag type " .. family, color = PALETTE[family % #PALETTE + 1] }
+end
+ns.BagType = BagType
+
+-- the icon of the bag item itself, for a bag the player is wearing
+local function BagIcon(bag)
+	local ok, inv = pcall(C_Container.ContainerIDToInventoryID, bag)
+	return ok and inv and GetInventoryItemTexture("player", inv) or nil
+end
+ns.BagIcon = BagIcon
+
+-- Every slot in a profession bag gets a light colour wash; empty slots also
+-- show the bag's own icon, faded. Textures live in
+-- a side table and are changed only with C methods, so live buttons stay untainted.
+local bagTypeLook = {}  -- bagTypeLook[button] = { wash, icon }
+local function SetBagTypeLook(b, family, empty, bagIcon)
+	local t = db.bagTypes and BagType(family)
+	local look = bagTypeLook[b]
+	if not look then
+		if not t then
+			return
+		end
+		local wash = b:CreateTexture(nil, "ARTWORK", nil, 6)
+		wash:SetPoint("TOPLEFT", 2, -2)
+		wash:SetPoint("BOTTOMRIGHT", -2, 2)
+		local icon = b:CreateTexture(nil, "ARTWORK", nil, 7)
+		icon:SetPoint("TOPLEFT", 6, -6)
+		icon:SetPoint("BOTTOMRIGHT", -6, 6)
+		icon:SetAlpha(0.45)
+		look = { wash = wash, icon = icon }
+		bagTypeLook[b] = look
+	end
+	if not t then
+		look.wash:Hide()
+		look.icon:Hide()
+		return
+	end
+	local r, g, bl = t.color[1], t.color[2], t.color[3]
+	look.wash:SetColorTexture(r, g, bl, empty and 0.30 or 0.15)
+	look.wash:Show()
+	if empty and bagIcon then
+		look.icon:SetTexture(bagIcon)
+		look.icon:Show()
+	else
+		look.icon:Hide()
+	end
 end
 
 local function SavedIsQuest(item)
@@ -273,6 +342,7 @@ function Window:UpdateLiveButton(b, bag, slot)
 	b:UpdateQuestItem(quest and quest.isQuestItem, quest and quest.questID, quest and quest.isActive)
 	local isQuest = texture ~= nil and ns.IsQuestItem(info.itemID, quest)
 	SetQuestGlow(b, db.questGlow and isQuest)
+	SetBagTypeLook(b, self.bagFamily[bag], texture == nil, self.bagIcon[bag])
 	b:UpdateNewItem(quality)
 	b:UpdateJunkItem(quality, info and info.hasNoValue)
 
@@ -356,6 +426,8 @@ function Window:UpdateSavedButton(b)
 
 	local isQuest = SavedIsQuest(item)
 	SetQuestGlow(b, db.questGlow and isQuest)
+	local container = savedContainer[b]
+	SetBagTypeLook(b, container and container.f, not (item and item.i), container and container.fi)
 	b.searchOverlay:SetShown(item and not self:Matches(item.id, item.l, nil, isQuest) or false)
 end
 
@@ -383,8 +455,13 @@ function Window:Layout()
 	local splitQuests = db.questSection
 
 	self.isLive = self:IsLive()
+	wipe(self.bagFamily)
+	wipe(self.bagIcon)
 	if self.isLive then
 		for _, bag in ipairs(self:LiveBags()) do
+			local ok, _, family = pcall(C_Container.GetContainerNumFreeSlots, bag)
+			self.bagFamily[bag] = ok and family or nil
+			self.bagIcon[bag] = BagType(self.bagFamily[bag]) and BagIcon(bag) or nil
 			for slot = 1, C_Container.GetContainerNumSlots(bag) do
 				local b = self:GetLiveButton(bag, slot)
 				local entry = { b, bag, slot }
@@ -403,6 +480,7 @@ function Window:Layout()
 				local b = self:GetSavedButton(n)
 				local item = container[slot] or false
 				savedItem[b] = item
+				savedContainer[b] = container
 				tinsert(self.shownSaved, b)
 				tinsert((splitQuests and SavedIsQuest(item)) and questList or restList, b)
 			end
@@ -586,6 +664,8 @@ local function CreateWindow(kind, globalName)
 	w.kind = kind
 	w.live, w.saved, w.bagFrames = {}, {}, {}
 	w.shownLive, w.shownSaved = {}, {}
+	w.bagFamily = {} -- bagFamily[bag] = bag type number of each live bag (set in Layout)
+	w.bagIcon = {}   -- bagIcon[bag] = icon of a profession bag (set in Layout)
 	w.searchText = ""
 	w.bankType = CHARACTER
 
@@ -607,6 +687,47 @@ local function CreateWindow(kind, globalName)
 	tinsert(UISpecialFrames, globalName) -- ESC closes it
 
 	w:SetScript("OnDragStart", w.StartMoving)
+
+	-- resize grip (bottom right): dragging it changes the window's scale, so the
+	-- slots, icons and text all grow and shrink together. The top-left corner stays put.
+	local scaleKey = kind == "bank" and "bankScale" or "scale"
+	local grip = CreateFrame("Button", nil, w)
+	grip:SetSize(16, 16)
+	grip:SetPoint("BOTTOMRIGHT", -3, 3)
+	grip:SetFrameLevel(w:GetFrameLevel() + 10)
+	grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+	grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+	grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+	local startX, startWidth, startScale, left, top
+	local function Resizing()
+		local x = GetCursorPosition()
+		local scale = startScale * (startWidth + (x - startX)) / startWidth
+		scale = max(0.5, min(2, floor(scale * 100 + 0.5) / 100))
+		w:SetScale(scale)
+		local eff = w:GetEffectiveScale()
+		w:ClearAllPoints()
+		w:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left / eff, top / eff)
+		db[scaleKey] = scale
+	end
+	grip:SetScript("OnMouseDown", function()
+		local eff = w:GetEffectiveScale()
+		startX = GetCursorPosition()
+		startWidth = w:GetWidth() * eff
+		startScale = w:GetScale()
+		left, top = w:GetLeft() * eff, w:GetTop() * eff
+		grip:SetScript("OnUpdate", Resizing)
+	end)
+	grip:SetScript("OnMouseUp", function()
+		grip:SetScript("OnUpdate", nil)
+		local point, _, relPoint, x, y = w:GetPoint()
+		db.pos[kind] = { point, relPoint, x, y }
+	end)
+	grip:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText("Drag to resize")
+		GameTooltip:Show()
+	end)
+	grip:SetScript("OnLeave", GameTooltip_Hide)
 	w:SetScript("OnDragStop", function(self)
 		self:StopMovingOrSizing()
 		local point, _, relPoint, x, y = self:GetPoint()
@@ -725,7 +846,7 @@ local function BuildInventory()
 	local w = CreateWindow("inventory", "TidyBagsFrame")
 
 	w.money = w:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-	w.money:SetPoint("BOTTOMRIGHT", -PADDING - 2, 14)
+	w.money:SetPoint("BOTTOMRIGHT", -PADDING - 14, 14)
 
 	-- mouse over money: everyone's gold
 	local moneyHover = CreateFrame("Frame", nil, w)
@@ -1090,7 +1211,7 @@ ns.On("PLAYER_LOGIN", function()
 	ns.inventory, ns.bank = inventory, bank
 
 	for kind, w in pairs({ inventory = inventory, bank = bank }) do
-		w:SetScale(db.scale)
+		w:SetScale(kind == "bank" and db.bankScale or db.scale)
 		w:ClearAllPoints()
 		local p = db.pos[kind]
 		if p then
@@ -1151,9 +1272,10 @@ SlashCmdList.TIDYBAGS = function(msg)
 		Print("bank columns = " .. db.bankColumns)
 	elseif cmd == "scale" and value then
 		db.scale = max(0.5, min(2, value))
+		db.bankScale = db.scale
 		inventory:SetScale(db.scale)
-		bank:SetScale(db.scale)
-		Print("scale = " .. db.scale)
+		bank:SetScale(db.bankScale)
+		Print("scale = " .. db.scale .. " (or drag the corner at the bottom right of a window)")
 	elseif cmd == "autosort" then
 		db.autoSort = not db.autoSort
 		inventory.auto:SetChecked(db.autoSort)
@@ -1174,6 +1296,34 @@ SlashCmdList.TIDYBAGS = function(msg)
 		inventory:UpdateAll()
 		bank:UpdateAll()
 		Print("quest item glow " .. (db.questGlow and "on" or "off"))
+	elseif cmd == "baginfo" then
+		-- prints each bag's name and its bag type number (bagFamily), to find the
+		-- real numbers Forever uses for herb, mining, skinning ... bags
+		local bags = ns.InventoryBags()
+		if ns.atBank then
+			for _, t in ipairs({ CHARACTER, ACCOUNT }) do
+				for _, bag in ipairs(ns.LiveBankBags(t)) do
+					tinsert(bags, bag)
+				end
+			end
+		end
+		Print("bag types (0 = normal bag):")
+		for _, bag in ipairs(bags) do
+			local size = C_Container.GetContainerNumSlots(bag) or 0
+			if size > 0 and bag ~= 0 and bag ~= KEYRING_CONTAINER then
+				local ok, _, family = pcall(C_Container.GetContainerNumFreeSlots, bag)
+				local okInv, inv = pcall(C_Container.ContainerIDToInventoryID, bag)
+				local link = okInv and inv and GetInventoryItemLink("player", inv)
+				local t = BagType(family)
+				print(("  bag %d: %s, %d slots, type %s%s"):format(bag, link or "?", size,
+					tostring(ok and family or "?"), t and (" (" .. t.name .. ")") or ""))
+			end
+		end
+	elseif cmd == "bagtypes" then
+		db.bagTypes = not db.bagTypes
+		inventory:UpdateAll()
+		bank:UpdateAll()
+		Print("profession bag colours " .. (db.bagTypes and "on" or "off"))
 	elseif cmd == "questwarn" then
 		db.questWarn = not db.questWarn
 		Print("warning when a quest item goes in the bank " .. (db.questWarn and "on" or "off"))
@@ -1197,6 +1347,8 @@ SlashCmdList.TIDYBAGS = function(msg)
 		print("  /tb counts        - item counts in tooltips (now " .. (db.tooltipCounts and "on" or "off") .. ")")
 		print("  /tb questfirst    - quest items in their own section at the top (now " .. (db.questSection and "on" or "off") .. ")")
 		print("  /tb questglow     - gold glow around quest items (now " .. (db.questGlow and "on" or "off") .. ")")
+		print("  /tb baginfo       - list your bags and their bag type numbers")
+		print("  /tb bagtypes      - colour and icon on herb, mining, leather ... bag slots (now " .. (db.bagTypes and "on" or "off") .. ")")
 		print("  /tb questwarn     - warn when a quest item goes in the bank (now " .. (db.questWarn and "on" or "off") .. ")")
 		print("  /tb reset         - move the windows back")
 	end

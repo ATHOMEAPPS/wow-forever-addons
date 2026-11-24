@@ -1,5 +1,6 @@
-TidyBags 2.1 - install on another computer
+TidyBags 2.5 - install on another computer
 ==========================================
+Made for the Family, by Claude and EonJoe.
 
 Works on: the World of Warcraft "_forever_" client (interface 16001).
 

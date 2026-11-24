@@ -8,7 +8,7 @@
 	                 bags = { [bagID] = container }, bank = { [bagID] = container },
 	                 bankOrder = { bagID, ... } }
 	  warband    = { time, bags = { [bagID] = container }, order = { bagID, ... } }
-	  container  = { size = n, [slot] = { id, c = count, l = link, i = icon, q = quality } }
+	  container  = { size = n, f = bag family bits (nil for a normal bag), [slot] = { id, c = count, l = link, i = icon, q = quality } }
 ]]
 
 local ADDON, ns = ...
@@ -91,6 +91,12 @@ end
 local function ReadContainer(bag)
 	local size = C_Container.GetContainerNumSlots(bag) or 0
 	local container = { size = size }
+	-- bag type (herb, mining, ...) as a bit field; 0 is a normal bag
+	local ok, _, family = pcall(C_Container.GetContainerNumFreeSlots, bag)
+	if ok and type(family) == "number" and family ~= 0 then
+		container.f = family
+		container.fi = ns.BagIcon and ns.BagIcon(bag) or nil -- the bag's own icon
+	end
 	for slot = 1, size do
 		container[slot] = ReadSlot(bag, slot)
 	end

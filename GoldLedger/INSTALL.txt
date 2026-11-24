@@ -1,5 +1,6 @@
-GoldLedger 1.2 - install on another computer
+GoldLedger 1.3 - install on another computer
 ============================================
+Made for the Family, by Claude and EonJoe.
 
 Works on: the World of Warcraft "_forever_" client (interface 16001).
 
