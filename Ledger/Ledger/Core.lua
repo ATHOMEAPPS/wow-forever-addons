@@ -1,16 +1,18 @@
 --[[
-	GoldLedger - Core.lua
+	Ledger - Core.lua
 	Saved data, categories, recording entries, time periods, money text.
 
-	GoldLedgerDB = {
+	LedgerDB = {
 	  settings = { ... },
 	  chars[guid] = {
 	    name = "Name Surname", short = "Name", class = "PRIEST", money = copper,
 	    days = { ["2026-11-23"] = { [cat] = { i = income, e = expense } } },   -- fast totals
 	    log  = { { t = time, a = signed copper, c = cat, d = "detail", n = count } }, -- details
 	    counter = { start = time, earned = copper, spent = copper },          -- on-screen counter
-	  }
+	  },
+	  loot = { ... },   -- the loot table, account-wide (see Loot.lua)
 	}
+	Ledger was called GoldLedger up to v1.3; the saved file was copied to Ledger.lua.
 	Transfers (own characters, Warband bank, guild bank) are logged but never
 	counted as earned or spent.
 ]]
@@ -46,22 +48,22 @@ end
 -- WoW Forever hides Lua errors, so keep the last few and tell the player once
 local errorShown = false
 function ns.Error(where, err)
-	if not GoldLedgerDB then
+	if not LedgerDB then
 		return
 	end
-	GoldLedgerDB.errors = GoldLedgerDB.errors or {}
-	tinsert(GoldLedgerDB.errors, { t = time(), where = tostring(where), msg = tostring(err):sub(1, 300) })
-	while #GoldLedgerDB.errors > 10 do
-		tremove(GoldLedgerDB.errors, 1)
+	LedgerDB.errors = LedgerDB.errors or {}
+	tinsert(LedgerDB.errors, { t = time(), where = tostring(where), msg = tostring(err):sub(1, 300) })
+	while #LedgerDB.errors > 10 do
+		tremove(LedgerDB.errors, 1)
 	end
 	if not errorShown then
 		errorShown = true
-		ns.Print("hit an error (" .. tostring(where) .. "). /gl errors shows it.")
+		ns.Print("hit an error (" .. tostring(where) .. "). /ledger errors shows it.")
 	end
 end
 
 function ns.Print(msg)
-	print("|cffffd100GoldLedger|r: " .. msg)
+	print("|cffffd100Ledger|r: " .. msg)
 end
 
 
@@ -115,15 +117,15 @@ local MERGE_SECONDS = 300
 --[[ Characters ]]--
 
 function ns.Char(key)
-	return GoldLedgerDB.chars[key or ns.me]
+	return LedgerDB.chars[key or ns.me]
 end
 
 function ns.SortedChars()
 	local keys = {}
-	for key in pairs(GoldLedgerDB.chars) do
+	for key in pairs(LedgerDB.chars) do
 		tinsert(keys, key)
 	end
-	local chars = GoldLedgerDB.chars
+	local chars = LedgerDB.chars
 	sort(keys, function(a, b)
 		if a == ns.me then return true end
 		if b == ns.me then return false end
@@ -154,12 +156,12 @@ function ns.IsOwnChar(name)
 		full = full:lower()
 		return full == name or full:match("^(%S+)") == name
 	end
-	for key, char in pairs(GoldLedgerDB.chars) do
+	for key, char in pairs(LedgerDB.chars) do
 		if key ~= ns.me and (Matches(char.name) or Matches(char.short)) then
 			return true
 		end
 	end
-	-- characters TidyBags knows about but that haven't logged in with GoldLedger yet
+	-- characters TidyBags knows about but that haven't logged in with Ledger yet
 	if type(TidyBagsData) == "table" and type(TidyBagsData.chars) == "table" then
 		for key, char in pairs(TidyBagsData.chars) do
 			if key ~= ns.me and type(char) == "table" and Matches(char.name) then
@@ -176,6 +178,7 @@ end
 local function DayKey(t)
 	return date("%Y-%m-%d", t)
 end
+ns.DayKey = DayKey
 
 -- amount: signed copper. cat: category key. detail: text shown in the ledger.
 function ns.Record(amount, cat, detail)
@@ -218,6 +221,11 @@ function ns.Record(amount, cat, detail)
 		else
 			counter.spent = counter.spent - amount
 		end
+	end
+
+	-- coin from a corpse: the loot table credits it to that mob
+	if cat == "loot" and amount > 0 and ns.OnLootCoin then
+		ns.OnLootCoin(amount)
 	end
 
 	if ns.OnRecorded then
@@ -278,7 +286,7 @@ function ns.Totals(charKeys, from, to)
 	if from == 0 then fromKey = "0000" end
 	local byCat, income, expense, transferIn, transferOut = {}, 0, 0, 0, 0
 	for _, key in ipairs(charKeys) do
-		local char = GoldLedgerDB.chars[key]
+		local char = LedgerDB.chars[key]
 		for dayKey, cats in pairs(char and char.days or {}) do
 			if dayKey >= fromKey and dayKey <= toKey then
 				for cat, total in pairs(cats) do
@@ -302,7 +310,7 @@ end
 function ns.Entries(charKeys, from, to, filterCat, filterSign)
 	local list = {}
 	for _, key in ipairs(charKeys) do
-		local char = GoldLedgerDB.chars[key]
+		local char = LedgerDB.chars[key]
 		for _, entry in ipairs(char and char.log or {}) do
 			if entry.t >= from and entry.t < to
 					and (not filterCat or entry.c == filterCat)
@@ -316,21 +324,87 @@ function ns.Entries(charKeys, from, to, filterCat, filterSign)
 end
 
 
+--[[ Clearing old data ]]--
+
+local NEVER = 2 ^ 31
+
+-- the choices offered in the Ledger window and the options page
+ns.ClearChoices = {
+	{ months = 1,  label = "Older than 1 month" },
+	{ months = 3,  label = "Older than 3 months" },
+	{ months = 6,  label = "Older than 6 months" },
+	{ months = 12, label = "Older than 1 year" },
+	{ months = 0,  label = "Everything (start fresh)" },
+}
+
+-- the first moment that is KEPT: midnight today minus N months (0 = clear everything)
+function ns.ClearCutoff(months)
+	if months == 0 then
+		return NEVER
+	end
+	local d = date("*t")
+	return time({ year = d.year, month = d.month - months, day = d.day, hour = 0 })
+end
+
+local function CutKey(cutoff)
+	return cutoff >= NEVER and "9999" or DayKey(cutoff)
+end
+
+-- how much would go: gold lines, gold day totals, loot days. Changes nothing.
+function ns.CountBefore(cutoff)
+	local cutKey = CutKey(cutoff)
+	local lines, days, lootDays = 0, 0, 0
+	for _, char in pairs(LedgerDB.chars) do
+		for _, e in ipairs(char.log or {}) do
+			if e.t < cutoff then lines = lines + 1 end
+		end
+		for key in pairs(char.days or {}) do
+			if key < cutKey then days = days + 1 end
+		end
+	end
+	if ns.LootCountBefore then
+		lootDays = ns.LootCountBefore(cutKey)
+	end
+	return lines, days, lootDays
+end
+
+-- remove every gold line, gold day total and loot day before the cutoff, for all characters
+function ns.ClearBefore(cutoff)
+	local cutKey = CutKey(cutoff)
+	for _, char in pairs(LedgerDB.chars) do
+		local kept = {}
+		for _, e in ipairs(char.log or {}) do
+			if e.t >= cutoff then tinsert(kept, e) end
+		end
+		char.log = kept
+		for key in pairs(char.days or {}) do
+			if key < cutKey then char.days[key] = nil end
+		end
+	end
+	if ns.LootClearBefore then
+		ns.LootClearBefore(cutKey)
+	end
+	if ns.OnRecorded then
+		ns.OnRecorded()
+	end
+end
+
+
 --[[ Startup ]]--
 
 ns.On("PLAYER_LOGIN", function()
-	GoldLedgerDB = GoldLedgerDB or {}
-	GoldLedgerDB.chars = GoldLedgerDB.chars or {}
-	GoldLedgerDB.settings = GoldLedgerDB.settings or {}
+	LedgerDB = LedgerDB or {}
+	LedgerDB.chars = LedgerDB.chars or {}
+	LedgerDB.settings = LedgerDB.settings or {}
 
 	ns.me = UnitGUID("player")
 	local short, extra = UnitFullName("player")
-	local char = GoldLedgerDB.chars[ns.me] or {}
+	local char = LedgerDB.chars[ns.me] or {}
 	char.short = short
 	char.name = (extra and extra ~= "") and (short .. " " .. extra) or short
 	char.class = select(2, UnitClass("player"))
 	char.days = char.days or {}
 	char.log = char.log or {}
 	char.counter = char.counter or { start = time(), earned = 0, spent = 0 }
-	GoldLedgerDB.chars[ns.me] = char
+	LedgerDB.chars[ns.me] = char
 end)

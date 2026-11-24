@@ -1260,9 +1260,12 @@ SLASH_TIDYBAGS1 = "/tidybags"
 SLASH_TIDYBAGS2 = "/tb"
 SlashCmdList.TIDYBAGS = function(msg)
 	local cmd, value = strsplit(" ", strtrim(msg or ""):lower(), 2)
+	local word = value
 	value = tonumber(value)
 
-	if cmd == "cols" and value then
+	if cmd == "errors" then
+		ns.ShowErrors(word)
+	elseif cmd == "cols" and value then
 		db.columns = max(4, min(30, floor(value)))
 		inventory:Layout()
 		Print("bag columns = " .. db.columns)
@@ -1351,5 +1354,6 @@ SlashCmdList.TIDYBAGS = function(msg)
 		print("  /tb bagtypes      - colour and icon on herb, mining, leather ... bag slots (now " .. (db.bagTypes and "on" or "off") .. ")")
 		print("  /tb questwarn     - warn when a quest item goes in the bank (now " .. (db.questWarn and "on" or "off") .. ")")
 		print("  /tb reset         - move the windows back")
+		print("  /tb errors        - saved errors and blocked actions (/tb errors clear empties it)")
 	end
 end

@@ -1,0 +1,13 @@
+## Interface: 16001
+## Title: Ledger
+## IconTexture: Interface\AddOns\Ledger\icon
+## Notes: Your own gold accounting: where every coin came from and went, by day, week and month, for all characters. A loot table: what each mob dropped, what it sold for, and who drops the most of an item. Plus an on-screen "coin earned" counter for farming. Made for the Family.
+## Author: Claude and EonJoe
+## Version: 2.0
+## SavedVariables: LedgerDB
+
+Core.lua
+Tracker.lua
+Loot.lua
+UI.lua
+Options.lua

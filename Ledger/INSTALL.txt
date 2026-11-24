@@ -1,0 +1,45 @@
+Ledger 2.0 - install on another computer
+========================================
+Made for the Family, by Claude and EonJoe.
+
+Works on: the World of Warcraft "_forever_" client (interface 16001).
+Ledger was called GoldLedger up to version 1.3.
+
+1. Close World of Warcraft.
+
+2. Copy the whole "Ledger" folder (next to this file, with
+   Ledger.toc, Core.lua, Tracker.lua, Loot.lua, UI.lua and Options.lua
+   inside) into:
+
+     C:\Program Files (x86)\World of Warcraft\_forever_\Interface\AddOns\
+
+   (Or unzip Ledger.zip into that AddOns folder.)
+
+3. If that computer has the old GoldLedger folder in AddOns, delete it.
+   Both must never be on at once, or every coin is counted twice.
+   To keep its history, copy
+     _forever_\WTF\Account\<ACCOUNT>\SavedVariables\GoldLedger.lua
+   to Ledger.lua in the same folder, open Ledger.lua in Notepad, and
+   change the line "GoldLedgerDB = {" to "LedgerDB = {".
+
+4. Start WoW. At character select click "AddOns":
+     - turn ON  Ledger
+     - turn OFF AllemanoLedger (if that computer has it)
+
+5. Log in. The coin counter appears near the top of the screen.
+   Click it, or type /ledger, to open the Ledger.
+
+Notes
+-----
+- Records start from the moment you install. A new computer starts empty.
+- Gold: where every coin came from and went, by day, week and month.
+- Loot: what each mob dropped and what it sold for. Type an item
+  (for example silk) in Search to see which mob drops the most of it.
+- Data lives in _forever_\WTF\Account\<ACCOUNT>\SavedVariables\Ledger.lua
+- /ledger           open or close the Ledger (/gl works too)
+  /ledger loot      open the loot table
+  /ledger clear     clear data older than 1, 3, 6 or 12 months
+  /ledger counter   show or hide the counter
+  /ledger reset     reset the counter
+  /ledger options   open the options (also Options > AddOns > Ledger)
+  /ledger errors    show recent errors

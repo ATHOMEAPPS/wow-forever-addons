@@ -1,4 +1,4 @@
-TidyBags 2.5 - install on another computer
+TidyBags 2.6 - install on another computer
 ==========================================
 Made for the Family, by Claude and EonJoe.
 
@@ -7,7 +7,7 @@ Works on: the World of Warcraft "_forever_" client (interface 16001).
 1. Close World of Warcraft.
 
 2. Copy the whole "TidyBags" folder (the one next to this file, with
-   TidyBags.toc, TidyBags.lua and Data.lua inside) into:
+   TidyBags.toc, Errors.lua, Data.lua and TidyBags.lua inside) into:
 
      C:\Program Files (x86)\World of Warcraft\_forever_\Interface\AddOns\
 

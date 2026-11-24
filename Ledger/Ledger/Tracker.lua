@@ -1,5 +1,5 @@
 --[[
-	GoldLedger - Tracker.lua
+	Ledger - Tracker.lua
 	Works out where every gold change came from.
 
 	How it works:
@@ -31,7 +31,7 @@ local function Now()
 	return GetTime()
 end
 
--- hooksecurefunc, but errors are kept for /gl errors instead of vanishing
+-- hooksecurefunc, but errors are kept for /ledger errors instead of vanishing
 local function SafeHook(a, b, c)
 	local fn = c or b
 	local name = c and b or a
@@ -53,10 +53,11 @@ end
 
 -- amount: exact signed copper, or nil. sign: +1 / -1 (needed when amount is nil)
 -- entries: optional list of { amount, cat, detail } to record instead of one line
-local function Claim(amount, sign, cat, detail, seconds, entries)
+-- sale: optional { itemID or nil, item name, count, copper received } for the loot table
+local function Claim(amount, sign, cat, detail, seconds, entries, sale)
 	tinsert(claims, {
 		amount = amount, sign = sign or (amount and (amount > 0 and 1 or -1)),
-		cat = cat, detail = detail, entries = entries,
+		cat = cat, detail = detail, entries = entries, sale = sale,
 		expires = Now() + (seconds or CLAIM_SECONDS),
 	})
 end
@@ -125,6 +126,7 @@ local function Zone()
 	end
 	return GetRealZoneText() or GetZoneText() or "?"
 end
+ns.Zone = Zone
 
 -- no claim matched: guess from what's open
 local function FromContext(delta)
@@ -176,6 +178,11 @@ local function Classify(delta)
 			end
 		else
 			ns.Record(delta, claim.cat, claim.detail)
+		end
+		-- only a sale whose gold really arrived counts against the loot table
+		local sale = claim.sale
+		if sale and ns.OnItemSold then
+			ns.OnItemSold(sale[1], sale[2], sale[3], sale[4] or delta)
 		end
 		return
 	end
@@ -288,7 +295,7 @@ ns.On("ITEM_LOCK_CHANGED", function(_, bag, slot)
 		if sellPrice and sellPrice > 0 then
 			local count = info.stackCount or 1
 			local detail = "Sold " .. info.hyperlink .. (count > 1 and (" x" .. count) or "")
-			Claim(sellPrice * count, 1, "vendor", detail, 5)
+			Claim(sellPrice * count, 1, "vendor", detail, 5, nil, { info.itemID, nil, count, sellPrice * count })
 		end
 	end
 end)
@@ -347,7 +354,9 @@ local function MailClaim(index)
 		if bid and bid > 0 then
 			detail = detail .. " (price " .. ns.Money(bid) .. ", AH cut " .. ns.Money(consignment or 0) .. ")"
 		end
-		Claim(money, 1, "auction", detail, 30)
+		-- the loot table gets the sale price minus the AH cut (not the returned deposit)
+		local received = (bid and bid > 0) and (bid - (consignment or 0)) or money
+		Claim(money, 1, "auction", detail, 30, nil, { nil, itemName, count or 1, received })
 	elseif sender and ns.IsOwnChar(sender) then
 		Claim(money, 1, "transfer", "Mail from " .. sender, 30)
 	elseif subject and subject:find("[Oo]utbid") then

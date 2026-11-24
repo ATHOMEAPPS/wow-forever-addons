@@ -1,7 +1,7 @@
 --[[
-	GoldLedger - Options.lua
-	The page under Options > AddOns > GoldLedger (Blizzard Settings API).
-	Values live in GoldLedgerDB.settings; UI.lua applies them.
+	Ledger - Options.lua
+	The page under Options > AddOns > Ledger (Blizzard Settings API).
+	Values live in LedgerDB.settings; UI.lua applies them.
 ]]
 
 local ADDON, ns = ...
@@ -12,9 +12,9 @@ ns.On("PLAYER_LOGIN", function()
 	if not (Settings and Settings.RegisterVerticalLayoutCategory) then
 		return
 	end
-	local settings = GoldLedgerDB.settings
+	local settings = LedgerDB.settings
 	local layout
-	category, layout = Settings.RegisterVerticalLayoutCategory("GoldLedger")
+	category, layout = Settings.RegisterVerticalLayoutCategory("Ledger")
 
 	local function Checkbox(variable, key, label, tooltip, onChange)
 		local setting = Settings.RegisterProxySetting(category, variable, Settings.VarType.Boolean, label,
@@ -60,12 +60,12 @@ ns.On("PLAYER_LOGIN", function()
 	end
 
 	Header("Coin earned counter")
-	Checkbox("GOLDLEDGER_SHOW_COUNTER", "showCounter", "Show coin earned counter",
+	Checkbox("LEDGER_SHOW_COUNTER", "showCounter", "Show coin earned counter",
 		"Show the on-screen box with gold earned, spent, net and gold per hour since the last reset.",
 		function() ns.ApplyCounterSettings() end)
 	Header("What the counter shows")
 	local function Part(key, label, tooltip)
-		Checkbox("GOLDLEDGER_" .. key:upper(), key, label, tooltip, function() ns.UpdateCounter() end)
+		Checkbox("LEDGER_" .. key:upper(), key, label, tooltip, function() ns.UpdateCounter() end)
 	end
 	Part("showEarned", "Gold earned (big number)", "The gold earned since the last reset.")
 	Part("showCoinIcon", "Gold coin icon", "The coin picture next to the earned number.")
@@ -73,19 +73,19 @@ ns.On("PLAYER_LOGIN", function()
 	Part("showNet", "Net", "Earned minus spent.")
 	Part("showTime", "Time running", "How long since the last reset.")
 	Part("showPerHour", "Gold per hour", "Gold earned per hour since the last reset.")
-	Part("showResetButton", "Reset button", "The small circle-arrow button on the counter. You can still reset here or with /gl reset.")
-	Slider("GOLDLEDGER_EARNED_SIZE", "earnedSize", "Gold earned text size",
+	Part("showResetButton", "Reset button", "The small circle-arrow button on the counter. You can still reset here or with /ledger reset.")
+	Slider("LEDGER_EARNED_SIZE", "earnedSize", "Gold earned text size",
 		"How big the earned number is. Use Counter size to resize the whole box.", 16, 10, 40, 1,
 		function(value) return tostring(floor(value + 0.5)) end)
 
 	Header("Counter look")
-	Checkbox("GOLDLEDGER_COUNTER_TOOLTIP", "counterTooltip", "Show tooltip on mouse-over",
+	Checkbox("LEDGER_COUNTER_TOOLTIP", "counterTooltip", "Show tooltip on mouse-over",
 		"Show the \"Coin earned\" help tooltip when the mouse is over the counter.")
-	Checkbox("GOLDLEDGER_LOCK_COUNTER", "lockCounter", "Lock counter position",
+	Checkbox("LEDGER_LOCK_COUNTER", "lockCounter", "Lock counter position",
 		"Stop the counter from being dragged by accident.")
-	Slider("GOLDLEDGER_COUNTER_SCALE", "counterScale", "Counter size",
+	Slider("LEDGER_COUNTER_SCALE", "counterScale", "Counter size",
 		"How big the whole counter is. You can also hold Ctrl and use the mouse wheel over the counter.", 1, 0.5, 2, 0.05)
-	Slider("GOLDLEDGER_COUNTER_ALPHA", "counterAlpha", "Background opacity",
+	Slider("LEDGER_COUNTER_ALPHA", "counterAlpha", "Background opacity",
 		"How dark the counter's background is. 0% = only the text shows.", 0.75, 0, 1, 0.05)
 	Button("Reset counter", "Reset", function()
 		ns.ResetCounter()
@@ -96,12 +96,23 @@ ns.On("PLAYER_LOGIN", function()
 	end, "Put the counter back at the top middle of the screen.")
 
 	Header("Ledger")
-	Button("Gold Ledger", "Open Ledger", function()
+	Button("Ledger", "Open Ledger", function()
 		if SettingsPanel and SettingsPanel:IsShown() and HideUIPanel then
 			HideUIPanel(SettingsPanel)
 		end
 		ns.ToggleLedger()
-	end, "See where your gold came from and went, by day, week and month. Same as /gl.")
+	end, "See where your gold came from and went, by day, week and month. Same as /ledger.")
+	Button("Loot table", "Open Loot", function()
+		if SettingsPanel and SettingsPanel:IsShown() and HideUIPanel then
+			HideUIPanel(SettingsPanel)
+		end
+		SlashCmdList.LEDGER("loot")
+	end, "What mobs dropped, what it sold for, and who drops the most of an item. Same as /ledger loot.")
+
+	Header("Saved data")
+	Button("Clear old data", "Clear...", function()
+		ns.ShowClear()
+	end, "Remove data older than 1 month, 3 months, 6 months or 1 year (or everything), for every character. You see how much goes before anything is removed. Same as /ledger clear.")
 
 	Settings.RegisterAddOnCategory(category)
 end)

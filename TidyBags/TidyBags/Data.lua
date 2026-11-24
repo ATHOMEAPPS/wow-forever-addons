@@ -23,7 +23,11 @@ local listeners = {}
 local eventFrame = CreateFrame("Frame")
 eventFrame:SetScript("OnEvent", function(_, event, ...)
 	for _, fn in ipairs(listeners[event]) do
-		fn(event, ...)
+		-- one broken listener must not stop the others; the error is saved (Errors.lua)
+		local ok, err = pcall(fn, event, ...)
+		if not ok then
+			ns.Error(event, err)
+		end
 	end
 end)
 

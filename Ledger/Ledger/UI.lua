@@ -1,5 +1,5 @@
 --[[
-	GoldLedger - UI.lua
+	Ledger - UI.lua
 	1. The on-screen counter ("coin earned" since you pressed reset).
 	2. The Ledger window: pick a character and a period, see totals per category
 	   and every line with its details.
@@ -42,7 +42,7 @@ end
 
 --[[ 1. Counter ]]--
 
-local counter = CreateFrame("Button", "GoldLedgerCounter", UIParent, "BackdropTemplate")
+local counter = CreateFrame("Button", "LedgerCounter", UIParent, "BackdropTemplate")
 counter:SetSize(210, 58)
 counter:SetFrameStrata("MEDIUM")
 counter:SetClampedToScreen(true)
@@ -99,7 +99,7 @@ function ns.UpdateCounter()
 	local net = c.earned - c.spent
 	local perHour = elapsed >= 60 and (c.earned / elapsed * 3600) or 0
 
-	-- which parts to show (each can be turned off in Options > AddOns > GoldLedger)
+	-- which parts to show (each can be turned off in Options > AddOns > Ledger)
 	local parts2, parts3 = {}, {}
 	if On("showSpent") then tinsert(parts2, "|cffff7070Spent|r " .. ns.Money(c.spent)) end
 	if On("showNet") then tinsert(parts2, "|cffffd100Net|r " .. ns.Money(net, true)) end
@@ -186,7 +186,7 @@ counter:SetScript("OnEnter", function(self)
 	GameTooltip:AddLine(" ")
 	GameTooltip:AddLine("Click: open the Ledger", 0.6, 0.8, 1)
 	GameTooltip:AddLine("Ctrl + mouse wheel: bigger / smaller", 0.6, 0.8, 1)
-	GameTooltip:AddLine(settings and settings.lockCounter and "Locked (unlock in Options > AddOns > GoldLedger)" or "Drag: move", 0.6, 0.8, 1)
+	GameTooltip:AddLine(settings and settings.lockCounter and "Locked (unlock in Options > AddOns > Ledger)" or "Drag: move", 0.6, 0.8, 1)
 	GameTooltip:Show()
 end)
 counter:SetScript("OnLeave", GameTooltip_Hide)
@@ -244,8 +244,8 @@ end
 local ROWS = 16
 local ROW_HEIGHT = 18
 
-local ledger = CreateFrame("Frame", "GoldLedgerFrame", UIParent, "BackdropTemplate")
-ledger:SetSize(760, 520)
+local ledger = CreateFrame("Frame", "LedgerFrame", UIParent, "BackdropTemplate")
+ledger:SetSize(860, 520)
 ledger:SetFrameStrata("HIGH")
 ledger:SetToplevel(true)
 ledger:SetClampedToScreen(true)
@@ -256,7 +256,7 @@ ledger:SetBackdrop(BACKDROP)
 ledger:SetBackdropColor(0.05, 0.05, 0.05, 0.95)
 ledger:SetBackdropBorderColor(0.8, 0.65, 0.2, 1)
 ledger:Hide()
-tinsert(UISpecialFrames, "GoldLedgerFrame")
+tinsert(UISpecialFrames, "LedgerFrame")
 ledger:SetScript("OnDragStart", ledger.StartMoving)
 ledger:SetScript("OnDragStop", function(self)
 	self:StopMovingOrSizing()
@@ -304,19 +304,39 @@ do
 	grip:SetScript("OnLeave", GameTooltip_Hide)
 end
 
-ledger.view = { char = nil, period = "today", cat = nil, sign = nil, offset = 0 }
+-- mode: "gold" (where gold came from and went) or "loot" (the loot table)
+ledger.view = { char = nil, period = "today", cat = nil, sign = nil, offset = 0,
+	mode = "gold", mob = nil, lootOffset = 0, mobOffset = 0 }
 
 local title = ledger:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 title:SetPoint("TOPLEFT", 14, -12)
-title:SetText("Gold Ledger")
+title:SetText("Ledger")
 
 local close = CreateFrame("Button", nil, ledger, "UIPanelCloseButton")
 close:SetPoint("TOPRIGHT", 2, 2)
 
+-- Gold / Loot buttons
+local modeButtons = {}
+do
+	local last = title
+	for _, m in ipairs({ { "gold", "Gold" }, { "loot", "Loot" } }) do
+		local b = CreateFrame("Button", nil, ledger, "UIPanelButtonTemplate")
+		b:SetSize(64, 22)
+		b:SetText(m[2])
+		b:SetPoint("LEFT", last, "RIGHT", last == title and 14 or 2, 0)
+		b:SetScript("OnClick", function()
+			ledger.view.mode = m[1]
+			ns.RefreshLedger()
+		end)
+		modeButtons[m[1]] = b
+		last = b
+	end
+end
+
 -- character picker
 local charButton = CreateFrame("Button", nil, ledger, "UIPanelButtonTemplate")
 charButton:SetSize(170, 22)
-charButton:SetPoint("LEFT", title, "RIGHT", 16, 0)
+charButton:SetPoint("LEFT", modeButtons.loot, "RIGHT", 12, 0)
 
 -- period buttons
 local periodButtons = {}
@@ -346,7 +366,7 @@ summary:SetPoint("RIGHT", -16, 0)
 summary:SetJustifyH("LEFT")
 
 -- search box (top right)
-local search = CreateFrame("EditBox", "GoldLedgerSearchBox", ledger, "SearchBoxTemplate")
+local search = CreateFrame("EditBox", "LedgerSearchBox", ledger, "SearchBoxTemplate")
 search:SetSize(180, 20)
 search:SetPoint("TOPRIGHT", -36, -13)
 search:HookScript("OnTextChanged", function(self)
@@ -354,13 +374,21 @@ search:HookScript("OnTextChanged", function(self)
 	if text ~= (ledger.view.search or "") then
 		ledger.view.search = text
 		ledger.view.offset = 0
+		ledger.view.lootOffset = 0
+		if text ~= "" then
+			ledger.view.mob = nil -- searching an item looks at every mob
+		end
 		ns.RefreshLedger()
 	end
 end)
 search:HookScript("OnEnter", function(self)
 	GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
 	GameTooltip:SetText("Search")
-	GameTooltip:AddLine("Find lines by item, player, sender, zone, quest, category or character. Searches the period you picked; choose All time to search everything.", 1, 1, 1, true)
+	if ledger.view.mode == "loot" then
+		GameTooltip:AddLine("Type an item name (for example silk) to see which mobs dropped the most of it. Searches the period you picked; choose All time for everything.", 1, 1, 1, true)
+	else
+		GameTooltip:AddLine("Find lines by item, player, sender, zone, quest, category or character. Searches the period you picked; choose All time to search everything.", 1, 1, 1, true)
+	end
 	GameTooltip:Show()
 end)
 search:HookScript("OnLeave", GameTooltip_Hide)
@@ -372,7 +400,7 @@ local function PlainText(entry, charKey)
 		:gsub("|c%x%x%x%x%x%x%x%x", "")
 		:gsub("|H.-|h", "")
 		:gsub("|[hr]", "")
-	local char = GoldLedgerDB.chars[charKey]
+	local char = LedgerDB.chars[charKey]
 	return (text .. " " .. ns.CategoryLabel(entry.c, entry.a) .. " " .. (char and char.name or "")):lower()
 end
 
@@ -382,7 +410,7 @@ rangeText:SetPoint("LEFT", charButton, "RIGHT", 12, 0)
 -- left: categories
 local catPanel = CreateFrame("Frame", nil, ledger, "BackdropTemplate")
 catPanel:SetPoint("TOPLEFT", 12, -94)
-catPanel:SetSize(230, 410)
+catPanel:SetSize(230, 382)
 catPanel:SetBackdrop(BACKDROP)
 catPanel:SetBackdropColor(0, 0, 0, 0.4)
 catPanel:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
@@ -497,7 +525,7 @@ for i = 1, ROWS do
 			GameTooltip:AddDoubleLine("Times", tostring(e.n), 0.8, 0.8, 0.8, 1, 1, 1)
 		end
 		GameTooltip:AddDoubleLine("When", date("%Y-%m-%d %H:%M", e.t), 0.8, 0.8, 0.8, 1, 1, 1)
-		GameTooltip:AddDoubleLine("Character", ns.ClassColored(GoldLedgerDB.chars[self.charKey]), 0.8, 0.8, 0.8, 1, 1, 1)
+		GameTooltip:AddDoubleLine("Character", ns.ClassColored(LedgerDB.chars[self.charKey]), 0.8, 0.8, 0.8, 1, 1, 1)
 		GameTooltip:Show()
 	end)
 	row:SetScript("OnLeave", GameTooltip_Hide)
@@ -507,6 +535,489 @@ end
 local empty = listPanel:CreateFontString(nil, "OVERLAY", "GameFontDisable")
 empty:SetPoint("CENTER")
 empty:SetText("Nothing recorded for this period yet.")
+
+-- under the categories: clear old data
+local clearButton = CreateFrame("Button", nil, ledger, "UIPanelButtonTemplate")
+clearButton:SetSize(140, 22)
+clearButton:SetPoint("TOPLEFT", catPanel, "BOTTOMLEFT", 0, -4)
+clearButton:SetText("Clear old data...")
+clearButton:SetScript("OnClick", function() ns.ShowClear() end)
+
+
+--[[ 3. Loot view (shares the window's period buttons and search box) ]]--
+
+local MIN_CORPSES = 5   -- fewer than this: the drop rate is a guess, so rank it lower
+local MOB_ROWS = 19
+
+local function Panel()
+	local p = CreateFrame("Frame", nil, ledger, "BackdropTemplate")
+	p:SetBackdrop(BACKDROP)
+	p:SetBackdropColor(0, 0, 0, 0.4)
+	p:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+	p:Hide()
+	p:EnableMouseWheel(true)
+	return p
+end
+
+-- left: mobs in this period
+local mobPanel = Panel()
+mobPanel:SetAllPoints(catPanel)
+local mobRows = {}
+for i = 1, MOB_ROWS do
+	local row = CreateFrame("Button", nil, mobPanel)
+	row:SetSize(214, 18)
+	row:SetPoint("TOPLEFT", 8, -8 - (i - 1) * 19)
+	row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	row.label:SetPoint("LEFT")
+	row.label:SetPoint("RIGHT", -36, 0)
+	row.label:SetJustifyH("LEFT")
+	row.label:SetWordWrap(false)
+	row.count = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	row.count:SetPoint("RIGHT")
+	row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+	row.selected = row:CreateTexture(nil, "BACKGROUND")
+	row.selected:SetAllPoints()
+	row.selected:SetColorTexture(1, 0.82, 0, 0.15)
+	row:SetScript("OnClick", function(self)
+		local view = ledger.view
+		view.mob = (self.mob ~= view.mob) and self.mob or nil
+		view.lootOffset = 0
+		if view.mob and view.search and view.search ~= "" then
+			search:SetText("") -- picking a mob shows all of its drops
+		end
+		ns.RefreshLedger()
+	end)
+	row:SetScript("OnEnter", function(self)
+		if not self.mob then
+			return
+		end
+		local t = self.data
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText(ns.MobName(self.mob))
+		if ns.MobZone(self.mob) ~= "" then
+			GameTooltip:AddLine(ns.MobZone(self.mob), 0.7, 0.7, 0.7)
+		end
+		GameTooltip:AddDoubleLine("Looted", tostring(t.k), 0.8, 0.8, 0.8, 1, 1, 1)
+		GameTooltip:AddDoubleLine("Items taken", tostring(t.n), 0.8, 0.8, 0.8, 1, 1, 1)
+		GameTooltip:AddDoubleLine("Coin", ns.Money(t.c), 0.8, 0.8, 0.8, 1, 1, 1)
+		GameTooltip:AddDoubleLine("Items sold for", ns.Money(t.v), 0.8, 0.8, 0.8, 1, 1, 1)
+		GameTooltip:AddLine("Click to see everything it dropped.", 0.6, 0.8, 1)
+		GameTooltip:Show()
+	end)
+	row:SetScript("OnLeave", GameTooltip_Hide)
+	mobRows[i] = row
+end
+
+-- right: the table
+local lootPanel = Panel()
+lootPanel:SetAllPoints(listPanel)
+
+local lootHeader = lootPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+lootHeader:SetPoint("TOPLEFT", 10, -8)
+lootHeader:SetPoint("RIGHT", -10, 0)
+lootHeader:SetJustifyH("LEFT")
+lootHeader:SetWordWrap(false)
+
+local lootPage = lootPanel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+lootPage:SetPoint("BOTTOMRIGHT", -10, 8)
+
+local lootEmpty = lootPanel:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+lootEmpty:SetPoint("CENTER")
+lootEmpty:SetWidth(420)
+
+local lootScroll = CreateFrame("Slider", nil, lootPanel)
+lootScroll:SetOrientation("VERTICAL")
+lootScroll:SetPoint("TOPRIGHT", -6, -44)
+lootScroll:SetPoint("BOTTOMRIGHT", -6, 24)
+lootScroll:SetWidth(12)
+lootScroll:SetThumbTexture("Interface\\Buttons\\UI-ScrollBar-Knob")
+do
+	local t = lootScroll:CreateTexture(nil, "BACKGROUND")
+	t:SetAllPoints()
+	t:SetColorTexture(1, 1, 1, 0.06)
+end
+lootScroll:SetValueStep(1)
+lootScroll:SetObeyStepOnDrag(true)
+lootScroll:SetScript("OnValueChanged", function(_, value)
+	value = floor(value + 0.5)
+	if value ~= ledger.view.lootOffset then
+		ledger.view.lootOffset = value
+		ns.RefreshLedger(true)
+	end
+end)
+lootPanel:SetScript("OnMouseWheel", function(_, delta)
+	local lo, hi = lootScroll:GetMinMaxValues()
+	lootScroll:SetValue(max(lo, min(hi, ledger.view.lootOffset - delta * 3)))
+end)
+mobPanel:SetScript("OnMouseWheel", function(_, delta)
+	ledger.view.mobOffset = max(0, ledger.view.mobOffset - delta * 3)
+	ns.RefreshLedger()
+end)
+
+-- columns: a wide name column, then four on the right
+local COL_WIDTHS = { 62, 70, 96, 116 }
+local function Columns(parent, font)
+	local cols, right = {}, nil
+	for c = #COL_WIDTHS, 1, -1 do
+		local fs = parent:CreateFontString(nil, "OVERLAY", font)
+		fs:SetWidth(COL_WIDTHS[c])
+		fs:SetJustifyH("RIGHT")
+		fs:SetWordWrap(false)
+		if right then
+			fs:SetPoint("RIGHT", right, "LEFT", -4, 0)
+		else
+			fs:SetPoint("RIGHT", -2, 0)
+		end
+		cols[c] = fs
+		right = fs
+	end
+	local name = parent:CreateFontString(nil, "OVERLAY", font)
+	name:SetPoint("LEFT", 2, 0)
+	name:SetPoint("RIGHT", cols[1], "LEFT", -6, 0)
+	name:SetJustifyH("LEFT")
+	name:SetWordWrap(false)
+	return name, cols
+end
+
+local colHeader = CreateFrame("Frame", nil, lootPanel)
+colHeader:SetHeight(16)
+colHeader:SetPoint("TOPLEFT", 8, -24)
+colHeader:SetPoint("RIGHT", lootScroll, "LEFT", -6, 0)
+colHeader.name, colHeader.cols = Columns(colHeader, "GameFontNormalSmall")
+
+local lootRows = {}
+for i = 1, ROWS do
+	local row = CreateFrame("Button", nil, lootPanel)
+	row:SetHeight(ROW_HEIGHT)
+	row:SetPoint("TOPLEFT", 8, -44 - (i - 1) * (ROW_HEIGHT + 2))
+	row:SetPoint("RIGHT", lootScroll, "LEFT", -6, 0)
+	row.bg = row:CreateTexture(nil, "BACKGROUND")
+	row.bg:SetAllPoints()
+	row.bg:SetColorTexture(1, 1, 1, i % 2 == 0 and 0.04 or 0)
+	row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+	row.name, row.cols = Columns(row, "GameFontHighlightSmall")
+	row:SetScript("OnClick", function(self)
+		local d = self.data
+		if not d then
+			return
+		end
+		if d.kind == "item" then
+			local item = ns.LootItem(d.id)
+			search:SetText(item and item.n or "") -- shows who drops it
+		elseif d.kind == "mob" then
+			ledger.view.mob = d.key
+			ledger.view.lootOffset = 0
+			search:SetText("")
+			ns.RefreshLedger()
+		end
+	end)
+	row:SetScript("OnEnter", function(self)
+		local d = self.data
+		if not d then
+			return
+		end
+		GameTooltip:SetOwner(self, "ANCHOR_CURSOR")
+		if d.kind == "item" then
+			local item = ns.LootItem(d.id)
+			if item and item.l then
+				GameTooltip:SetHyperlink(item.l)
+			else
+				GameTooltip:SetText(item and item.n or "?")
+			end
+			GameTooltip:AddLine(" ")
+			GameTooltip:AddDoubleLine("Looted", tostring(d.n), 0.8, 0.8, 0.8, 1, 1, 1)
+			GameTooltip:AddDoubleLine("Sold", d.s .. " for " .. ns.Money(d.v), 0.8, 0.8, 0.8, 1, 1, 1)
+			if d.n > d.s and item and item.p and item.p > 0 then
+				GameTooltip:AddDoubleLine("Not sold yet", (d.n - d.s) .. " (vendor " .. ns.Money((d.n - d.s) * item.p) .. ")", 0.8, 0.8, 0.8, 1, 1, 1)
+			end
+			for i, top in ipairs(d.top or {}) do
+				if i > 3 then break end
+				GameTooltip:AddDoubleLine(i == 1 and "Dropped most by" or " ", ns.MobName(top[1]) .. " (" .. top[2] .. ")", 0.8, 0.8, 0.8, 1, 1, 1)
+			end
+			GameTooltip:AddLine("Click: who drops it", 0.6, 0.8, 1)
+		else
+			GameTooltip:SetText(ns.MobName(d.key))
+			if ns.MobZone(d.key) ~= "" then
+				GameTooltip:AddLine(ns.MobZone(d.key), 0.7, 0.7, 0.7)
+			end
+			GameTooltip:AddDoubleLine("Looted", tostring(d.k), 0.8, 0.8, 0.8, 1, 1, 1)
+			GameTooltip:AddDoubleLine("Dropped", tostring(d.n), 0.8, 0.8, 0.8, 1, 1, 1)
+			if d.k < MIN_CORPSES then
+				GameTooltip:AddLine("Only " .. d.k .. " looted: the rate is a rough guess until " .. MIN_CORPSES .. ".", 1, 0.6, 0.3, true)
+			end
+			GameTooltip:AddLine("Click: everything it dropped", 0.6, 0.8, 1)
+		end
+		GameTooltip:Show()
+	end)
+	row:SetScript("OnLeave", GameTooltip_Hide)
+	lootRows[i] = row
+end
+
+local function Rate(n, k)
+	if not k or k <= 0 then
+		return "-"
+	end
+	local r = n / k
+	return r >= 10 and format("%.0f", r) or format("%.2f", r)
+end
+
+local function ItemText(id)
+	local item = ns.LootItem(id)
+	return item and (item.l or item.n) or ("item " .. id)
+end
+
+local function Unsold(id, n, s)
+	local item = ns.LootItem(id)
+	if n > s and item and item.p and item.p > 0 then
+		return "|cff999999~" .. ns.Money((n - s) * item.p) .. "|r"
+	end
+	return ""
+end
+
+local lootList = {}
+
+-- build the table and the mob list for this period
+local function BuildLoot(from, to)
+	local view = ledger.view
+	local mobs = ns.LootTotals(from, to)
+	local list = {}
+	local text = view.search or ""
+
+	-- summary across everything
+	local corpses, taken, soldFor, unsoldWorth, coin = 0, 0, 0, 0, 0
+	for _, t in pairs(mobs) do
+		corpses, coin = corpses + t.k, coin + t.c
+		for id, r in pairs(t.i) do
+			taken, soldFor = taken + r.n, soldFor + r.v
+			local item = ns.LootItem(id)
+			if item and item.p and r.n > r.s then
+				unsoldWorth = unsoldWorth + (r.n - r.s) * item.p
+			end
+		end
+	end
+	summary:SetText(format("|cffffd100Looted|r %d     |cffffd100Items taken|r %d     |cff40ff40Items sold for|r %s     |cff999999Not sold yet ~%s (vendor price)|r     |cffffd100Coin|r %s",
+		corpses, taken, ns.Money(soldFor), ns.Money(unsoldWorth), ns.Money(coin)))
+
+	local heads
+	if text ~= "" then
+		-- who drops it
+		for key, t in pairs(mobs) do
+			local n, s, v = 0, 0, 0
+			for id, r in pairs(t.i) do
+				local item = ns.LootItem(id)
+				if item and item.n and item.n:lower():find(text, 1, true) then
+					n, s, v = n + r.n, s + r.s, v + r.v
+				end
+			end
+			if n > 0 then
+				tinsert(list, { kind = "mob", key = key, k = t.k, n = n, s = s, v = v,
+					name = ns.MobName(key) .. "  |cff999999" .. ns.MobZone(key) .. "|r",
+					cols = { tostring(t.k), tostring(n), Rate(n, t.k), ns.Money(v) } })
+			end
+		end
+		sort(list, function(a, b)
+			local ra, rb = a.k >= MIN_CORPSES, b.k >= MIN_CORPSES
+			if ra ~= rb then return ra end
+			local pa, pb = a.n / max(a.k, 1), b.n / max(b.k, 1)
+			if pa ~= pb then return pa > pb end
+			return a.n > b.n
+		end)
+		heads = { "Mob  (best first; click for all its drops)", "Looted", "Dropped", "Per corpse", "Sold for" }
+		lootHeader:SetText(format("Who drops \"%s\"  |cff999999(mobs looted fewer than %d times are listed last)|r", text, MIN_CORPSES))
+	elseif view.mob and mobs[view.mob] then
+		-- one mob's drops
+		local t = mobs[view.mob]
+		for id, r in pairs(t.i) do
+			tinsert(list, { kind = "item", id = id, n = r.n, s = r.s, v = r.v, name = ItemText(id),
+				cols = { tostring(r.n), Rate(r.n, t.k), r.s > 0 and ns.Money(r.v) or "", Unsold(id, r.n, r.s) } })
+		end
+		sort(list, function(a, b) return a.n > b.n end)
+		heads = { "Item  (click: who else drops it)", "Dropped", "Per corpse", "Sold for", "Not sold (vendor)" }
+		lootHeader:SetText(format("%s  |cff999999%s|r   looted %d, coin %s  |cff999999(click the mob again to show all)|r",
+			ns.MobName(view.mob), ns.MobZone(view.mob), t.k, ns.Money(t.c)))
+	else
+		-- every item looted
+		view.mob = nil
+		local items = {}
+		for key, t in pairs(mobs) do
+			for id, r in pairs(t.i) do
+				local a = items[id] or { n = 0, s = 0, v = 0, top = {} }
+				items[id] = a
+				a.n, a.s, a.v = a.n + r.n, a.s + r.s, a.v + r.v
+				tinsert(a.top, { key, r.n })
+			end
+		end
+		for id, a in pairs(items) do
+			sort(a.top, function(x, y) return x[2] > y[2] end)
+			tinsert(list, { kind = "item", id = id, n = a.n, s = a.s, v = a.v, top = a.top, name = ItemText(id),
+				cols = { tostring(a.n), tostring(a.s), a.s > 0 and ns.Money(a.v) or "", Unsold(id, a.n, a.s) } })
+		end
+		sort(list, function(a, b)
+			if a.v ~= b.v then return a.v > b.v end
+			return a.n > b.n
+		end)
+		heads = { "Item  (click: who drops it)", "Looted", "Sold", "Sold for", "Not sold (vendor)" }
+		lootHeader:SetText("Everything looted from mobs, all characters  |cff999999(type an item in Search to see who drops it)|r")
+	end
+	colHeader.name:SetText(heads[1])
+	for c = 1, 4 do
+		colHeader.cols[c]:SetText(heads[c + 1])
+	end
+	lootEmpty:SetText(text ~= "" and ("No mob dropped \"" .. text .. "\" in this period. Try All time.")
+		or "No loot recorded for this period yet. Loot a mob and it shows up here.")
+
+	-- left list: mobs, most looted first
+	local mobList = {}
+	for key, t in pairs(mobs) do
+		tinsert(mobList, { key, t })
+	end
+	sort(mobList, function(a, b)
+		if a[2].k ~= b[2].k then return a[2].k > b[2].k end
+		return ns.MobName(a[1]) < ns.MobName(b[1])
+	end)
+	view.mobOffset = min(view.mobOffset, max(0, #mobList + 1 - MOB_ROWS))
+	for i, row in ipairs(mobRows) do
+		local index = view.mobOffset + i - 1 -- 0 = "All mobs"
+		if index == 0 then
+			row.mob, row.data = nil, nil
+			row.label:SetText("|cffffd100All mobs|r")
+			row.count:SetText("")
+			row.selected:SetShown(not view.mob)
+			row:Show()
+		elseif mobList[index] then
+			local key, t = mobList[index][1], mobList[index][2]
+			row.mob, row.data = key, t
+			row.label:SetText(ns.MobName(key))
+			row.count:SetText(tostring(t.k))
+			row.selected:SetShown(view.mob == key)
+			row:Show()
+		else
+			row.mob, row.data = nil, nil
+			row:Hide()
+		end
+	end
+	return list
+end
+
+local function ShowLootRows()
+	local view = ledger.view
+	for i, row in ipairs(lootRows) do
+		local d = lootList[view.lootOffset + i]
+		row.data = d
+		if d then
+			row.name:SetText(d.name)
+			for c = 1, 4 do
+				row.cols[c]:SetText(d.cols[c])
+			end
+			row:Show()
+		else
+			row:Hide()
+		end
+	end
+	lootEmpty:SetShown(#lootList == 0)
+	lootPage:SetText(#lootList > 0 and format("%d-%d of %d", view.lootOffset + 1, min(view.lootOffset + ROWS, #lootList), #lootList) or "")
+end
+
+local function RefreshLoot(from, to, scrollOnly)
+	if not scrollOnly then
+		lootList = BuildLoot(from, to)
+		local maxOffset = max(0, #lootList - ROWS)
+		lootScroll:SetMinMaxValues(0, maxOffset)
+		lootScroll:SetShown(maxOffset > 0)
+		ledger.view.lootOffset = min(ledger.view.lootOffset, maxOffset)
+		lootScroll:SetValue(ledger.view.lootOffset)
+	end
+	ShowLootRows()
+end
+
+
+--[[ 4. Clear old data window ]]--
+
+local clearFrame = CreateFrame("Frame", "LedgerClearFrame", UIParent, "BackdropTemplate")
+clearFrame:SetSize(420, 330)
+clearFrame:SetPoint("CENTER", 0, 60)
+clearFrame:SetFrameStrata("FULLSCREEN_DIALOG")
+clearFrame:SetToplevel(true)
+clearFrame:EnableMouse(true)
+clearFrame:SetBackdrop(BACKDROP)
+clearFrame:SetBackdropColor(0.05, 0.05, 0.05, 0.97)
+clearFrame:SetBackdropBorderColor(0.9, 0.3, 0.2, 1)
+clearFrame:Hide()
+tinsert(UISpecialFrames, "LedgerClearFrame")
+do
+	local t = clearFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+	t:SetPoint("TOP", 0, -14)
+	t:SetText("Clear old Ledger data")
+	local sub = clearFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	sub:SetPoint("TOP", t, "BOTTOM", 0, -6)
+	sub:SetWidth(380)
+	sub:SetText("Pick how much to keep. This is for every character, and covers gold lines, gold totals and the loot table.")
+end
+
+local clearInfo = clearFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+clearInfo:SetPoint("TOPLEFT", 20, -210)
+clearInfo:SetPoint("RIGHT", -20, 0)
+clearInfo:SetJustifyH("LEFT")
+
+local clearYes = CreateFrame("Button", nil, clearFrame, "UIPanelButtonTemplate")
+clearYes:SetSize(120, 24)
+clearYes:SetPoint("BOTTOMRIGHT", clearFrame, "BOTTOM", -6, 14)
+clearYes:SetText("Clear it")
+
+local clearNo = CreateFrame("Button", nil, clearFrame, "UIPanelButtonTemplate")
+clearNo:SetSize(120, 24)
+clearNo:SetPoint("BOTTOMLEFT", clearFrame, "BOTTOM", 6, 14)
+clearNo:SetText("Cancel")
+clearNo:SetScript("OnClick", function() clearFrame:Hide() end)
+
+local clearChoice
+local clearButtons = {}
+for i, choice in ipairs(ns.ClearChoices) do
+	local b = CreateFrame("Button", nil, clearFrame, "UIPanelButtonTemplate")
+	b:SetSize(240, 22)
+	b:SetPoint("TOP", 0, -72 - (i - 1) * 26)
+	b:SetText(choice.label)
+	b:SetScript("OnClick", function()
+		clearChoice = choice
+		for _, other in ipairs(clearButtons) do
+			other:SetEnabled(other ~= b)
+		end
+		local cutoff = ns.ClearCutoff(choice.months)
+		local lines, days, lootDays = ns.CountBefore(cutoff)
+		local what = choice.months == 0 and "|cffff5050Everything|r will be removed"
+			or ("Everything before |cffffd100" .. date("%B %d, %Y", cutoff) .. "|r will be removed")
+		if lines + days + lootDays == 0 then
+			clearInfo:SetText(what .. ":\n\nnothing is that old yet.")
+			clearYes:Disable()
+		else
+			clearInfo:SetText(format("%s:\n%d gold lines, %d days of gold totals, %d days of loot table.\n|cffff7070All time totals go down by that much. This can't be undone.|r\nThe coin earned counter isn't changed.",
+				what, lines, days, lootDays))
+			clearYes:Enable()
+		end
+	end)
+	clearButtons[i] = b
+end
+
+clearYes:SetScript("OnClick", function()
+	if not clearChoice then
+		return
+	end
+	local cutoff = ns.ClearCutoff(clearChoice.months)
+	local lines, days, lootDays = ns.CountBefore(cutoff)
+	ns.ClearBefore(cutoff)
+	ns.Print(format("cleared %d gold lines, %d days of gold totals and %d days of loot table.", lines, days, lootDays))
+	clearFrame:Hide()
+end)
+
+function ns.ShowClear()
+	clearChoice = nil
+	for _, b in ipairs(clearButtons) do
+		b:Enable()
+	end
+	clearInfo:SetText("Nothing is removed until you press Clear it.")
+	clearYes:Disable()
+	clearFrame:Show()
+end
 
 
 --[[ Filling the window ]]--
@@ -551,6 +1062,22 @@ function ns.RefreshLedger(scrollOnly)
 			rangeText:SetText(same and date("%A %b %d, %Y", from) or (date("%b %d", from) .. " - " .. date("%b %d, %Y", last)))
 		else
 			rangeText:SetText("since install")
+		end
+
+		-- Gold or Loot
+		local loot = view.mode == "loot"
+		for key, b in pairs(modeButtons) do
+			b:SetEnabled(key ~= view.mode)
+		end
+		catPanel:SetShown(not loot)
+		listPanel:SetShown(not loot)
+		mobPanel:SetShown(loot)
+		lootPanel:SetShown(loot)
+		charButton:SetEnabled(not loot)
+		if loot then
+			charButton:SetText("All characters") -- the loot table is shared
+			RefreshLoot(from, to)
+			return
 		end
 
 		-- totals
@@ -634,6 +1161,11 @@ function ns.RefreshLedger(scrollOnly)
 		scroll:SetValue(view.offset)
 	end
 
+	if view.mode == "loot" then
+		RefreshLoot(from, to, true)
+		return
+	end
+
 	-- rows
 	local list = cachedEntries or {}
 	local showAll = view.char == "all"
@@ -644,7 +1176,7 @@ function ns.RefreshLedger(scrollOnly)
 			row.entry, row.charKey = e, charKey
 			local sameDay = date("%Y-%m-%d", e.t) == date("%Y-%m-%d")
 			row.when:SetText(sameDay and date("%H:%M", e.t) or date("%b %d %H:%M", e.t))
-			local prefix = showAll and (ns.ClassColored(GoldLedgerDB.chars[charKey]) .. ": ") or ""
+			local prefix = showAll and (ns.ClassColored(LedgerDB.chars[charKey]) .. ": ") or ""
 			local times = (e.n and e.n > 1) and (" |cff999999(" .. e.n .. "x)|r") or ""
 			row.detail:SetText(prefix .. e.d .. times)
 			row.amount:SetText(ns.Money(e.a, true))
@@ -667,7 +1199,7 @@ charButton:SetScript("OnClick", function(self)
 			function() return ledger.view.char == "all" end,
 			function() ledger.view.char = "all"; ledger.view.offset = 0; ns.RefreshLedger() end)
 		for _, key in ipairs(ns.SortedChars()) do
-			root:CreateRadio(ns.ClassColored(GoldLedgerDB.chars[key]),
+			root:CreateRadio(ns.ClassColored(LedgerDB.chars[key]),
 				function(k) return (ledger.view.char or ns.me) == k end,
 				function(k) ledger.view.char = k; ledger.view.offset = 0; ns.RefreshLedger() end, key)
 		end
@@ -686,7 +1218,7 @@ end
 --[[ Startup and commands ]]--
 
 ns.On("PLAYER_LOGIN", function()
-	settings = GoldLedgerDB.settings
+	settings = LedgerDB.settings
 	if settings.showCounter == nil then
 		settings.showCounter = true
 	end
@@ -705,16 +1237,31 @@ ns.On("PLAYER_LOGIN", function()
 
 	local loaded = C_AddOns and C_AddOns.IsAddOnLoaded or IsAddOnLoaded
 	if loaded and loaded("AllemanoLedger") then
-		ns.Print("Allemano Ledger is also on. You can turn it off at character select.")
+		ns.Print("Allemano Ledger is also on, and it may take the /ledger command (use /gl). You can turn it off at character select.")
 	end
 end)
 
-SLASH_GOLDLEDGER1 = "/gl"
-SLASH_GOLDLEDGER2 = "/goldledger"
-SlashCmdList.GOLDLEDGER = function(msg)
+SLASH_LEDGER1 = "/ledger"
+SLASH_LEDGER2 = "/gl"
+SlashCmdList.LEDGER = function(msg)
 	local cmd = strtrim(msg or ""):lower()
-	if cmd == "" or cmd == "ledger" then
-		ns.ToggleLedger()
+	if cmd == "" or cmd == "ledger" or cmd == "gold" then
+		if cmd == "gold" then
+			ledger.view.mode = "gold"
+			ledger:Show()
+			ns.RefreshLedger()
+		else
+			ns.ToggleLedger()
+		end
+	elseif cmd == "loot" then
+		ledger.view.mode = "loot"
+		ledger:Show()
+		ns.RefreshLedger()
+	elseif cmd == "clear" then
+		ns.ShowClear()
+	elseif cmd == "lootinfo" then
+		ns.lootDebug = not ns.lootDebug
+		ns.Print("loot details in chat " .. (ns.lootDebug and "ON: loot a few mobs, skin one, then type /ledger lootinfo again to stop." or "off."))
 	elseif cmd == "counter" then
 		settings.showCounter = not settings.showCounter
 		counter:SetShown(settings.showCounter)
@@ -727,7 +1274,7 @@ SlashCmdList.GOLDLEDGER = function(msg)
 			ns.OpenOptions()
 		end
 	elseif cmd == "errors" then
-		local list = GoldLedgerDB.errors or {}
+		local list = LedgerDB.errors or {}
 		if #list == 0 then
 			ns.Print("no errors recorded.")
 		end
@@ -735,11 +1282,15 @@ SlashCmdList.GOLDLEDGER = function(msg)
 			print(date("%H:%M", e.t) .. " " .. e.where .. ": " .. e.msg)
 		end
 	else
-		ns.Print("commands:")
-		print("  /gl          - open or close the Ledger")
-		print("  /gl counter  - show or hide the on-screen counter")
-		print("  /gl reset    - reset the counter")
-		print("  /gl options  - open the options (also in Options > AddOns)")
-		print("  /gl errors   - show recent errors")
+		ns.Print("commands (/gl works too):")
+		print("  /ledger           - open or close the Ledger")
+		print("  /ledger gold      - open the gold view")
+		print("  /ledger loot      - open the loot table")
+		print("  /ledger clear     - clear old data")
+		print("  /ledger counter   - show or hide the on-screen counter")
+		print("  /ledger reset     - reset the counter")
+		print("  /ledger options   - open the options (also in Options > AddOns)")
+		print("  /ledger errors    - show recent errors")
+		print("  /ledger lootinfo  - print loot details in chat (for testing)")
 	end
 end
